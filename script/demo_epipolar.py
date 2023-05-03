@@ -18,7 +18,7 @@ def options():
     kitti_parser = parser.add_argument_group()
     kitti_parser.add_argument("--base_dir",type=str,default="/data/DATA/data_odometry/dataset/")
     kitti_parser.add_argument("--seq",type=int,default=0,choices=[i for i in range(11)])
-    kitti_parser.add_argument("--index_i",type=int,default=4)
+    kitti_parser.add_argument("--index_i",type=int,default=6)
     kitti_parser.add_argument("--index_j",type=int,default=7)
     
     io_parser = parser.add_argument_group()
@@ -26,10 +26,10 @@ def options():
     io_parser.add_argument("--Twl_file",type=str,default="../Twl.txt")
     
     arg_parser = parser.add_argument_group()
-    arg_parser.add_argument("--tsl_perturb",type=float,nargs=3,default=[0,-0.15,0.1])
+    arg_parser.add_argument("--tsl_perturb",type=float,nargs=3,default=[0.1,-0.15,0.1])
     arg_parser.add_argument("--rot_perturb",type=float,nargs=3,default=[0,0,0])
     arg_parser.add_argument("--fps_sample",type=int,default=100)
-    arg_parser.add_argument("--epipolar_threshold",type=float,default=1)
+    arg_parser.add_argument("--epipolar_threshold",type=float,default=2)
     args = parser.parse_args()
     args.seq_id = "%02d"%args.seq
     return args
@@ -68,7 +68,7 @@ def drawcorrpoints(img1,img2,pts1,pts2):
         img2 = cv2.circle(img2,tuple(pt2),5,color,-1)
     return img1,img2
 
-def project_corr_pts(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, extran:np.ndarray, intran:np.ndarray,img_shape:tuple):
+def project_corr_pts(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, extran:np.ndarray, intran:np.ndarray, img_shape:tuple):
     src_proj_pts, src_rev_idx = npproj(src_pcd_corr, extran, intran, img_shape)
     tgt_proj_pts, tgt_rev_idx = npproj(tgt_pcd_corr, extran, intran, img_shape)
     src_in_tgt_idx = np.isin(src_rev_idx, tgt_rev_idx)
@@ -79,7 +79,7 @@ def project_corr_pts(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, extran:np
     tgt_proj_pts = tgt_proj_pts.astype(np.int32)
     return src_proj_pts, tgt_proj_pts
 
-def EpipolarwithF(src_proj_pts:np.ndarray, tgt_proj_pts:np.ndarray, F:np.ndarray, threshold=2, draw=True):
+def EpipolarwithF(src_proj_pts:np.ndarray, tgt_proj_pts:np.ndarray, F:np.ndarray, threshold=2, dual=True, draw=True):
     # Find epilines corresponding to points in right image (second image) and
     # drawing its lines on left image
     lines1 = cv2.computeCorrespondEpilines(tgt_proj_pts.reshape(-1,1,2), 2,F)
@@ -87,31 +87,36 @@ def EpipolarwithF(src_proj_pts:np.ndarray, tgt_proj_pts:np.ndarray, F:np.ndarray
     
     # Find epilines corresponding to points in left image (first image) and
     # drawing its lines on right image
-    lines2 = cv2.computeCorrespondEpilines(src_proj_pts.reshape(-1,1,2), 1,F)
-    lines2 = lines2.reshape(-1,3)
-    # img3, img2 = drawlines(src_img,tgt_img,lines2,src_proj_pts,tgt_proj_pts)
-    # img0, img1 = drawcorrpoints(src_img, tgt_img, src_proj_pts, tgt_proj_pts)
-    src_dist:np.ndarray = np.abs(np.sum(src_proj_pts * lines1[:,:2], axis=1)+lines1[:,-1])
-    tgt_dist:np.ndarray = np.abs(np.sum(tgt_proj_pts * lines2[:,:2], axis=1)+lines2[:,-1])
-    rev_mask = np.logical_and(src_dist < threshold, tgt_dist < threshold)
-    d_mean = 0.5*(src_dist.mean() + tgt_dist.mean())
+    if dual:
+        lines2 = cv2.computeCorrespondEpilines(src_proj_pts.reshape(-1,1,2), 1,F)
+        lines2 = lines2.reshape(-1,3)
+        # img3, img2 = drawlines(src_img,tgt_img,lines2,src_proj_pts,tgt_proj_pts)
+        # img0, img1 = drawcorrpoints(src_img, tgt_img, src_proj_pts, tgt_proj_pts)
+        src_dist:np.ndarray = np.abs(np.sum(src_proj_pts * lines1[:,:2], axis=1)+lines1[:,-1])
+        tgt_dist:np.ndarray = np.abs(np.sum(tgt_proj_pts * lines2[:,:2], axis=1)+lines2[:,-1])
+        rev_mask = np.logical_and(src_dist < threshold, tgt_dist < threshold)
+        d_mean = 0.5*(src_dist.mean() + tgt_dist.mean())
+    else:
+        src_dist:np.ndarray = np.abs(np.sum(src_proj_pts * lines1[:,:2], axis=1)+lines1[:,-1])
+        rev_mask = src_dist < threshold
+        d_mean = src_dist.mean()
     if draw:
         img5, img4 = drawlines(src_img,tgt_img,lines1,src_proj_pts,tgt_proj_pts)
         return img5, img4, rev_mask.sum(), d_mean
     else:
         return rev_mask.sum(), d_mean
 
-def EpipolarwithoutF(src_proj_pts:np.ndarray, tgt_proj_pts:np.ndarray, threshold=2, draw=True):
+def EpipolarwithoutF(src_proj_pts:np.ndarray, tgt_proj_pts:np.ndarray, threshold=2, dual=True, draw=True):
     F, mask = cv2.findFundamentalMat(src_proj_pts, tgt_proj_pts, cv2.FM_LMEDS)
     print("Fundamental Matrix:\n{}".format(F))
     # select Inliers
     src_proj_pts = src_proj_pts[mask.ravel()==1]
     tgt_proj_pts = tgt_proj_pts[mask.ravel()==1]
     if draw:
-        img5, img4, Ncorr, d_mean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold, True)
+        img5, img4, Ncorr, d_mean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold, dual, True)
         return img5, img4, Ncorr, F, d_mean
     else:
-        Ncorr, d_mean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold, False)
+        Ncorr, d_mean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold, dual, False)
         return Ncorr, F, d_mean
 
 
