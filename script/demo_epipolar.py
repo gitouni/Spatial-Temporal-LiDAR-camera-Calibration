@@ -9,17 +9,22 @@ import matplotlib
 matplotlib.use('agg')
 from matplotlib import pyplot as plt
 from tools import *
-from fps_v1 import FPS
 
 os.chdir(os.path.dirname(__file__))
+
+def str2bool(s:str) -> bool:
+    if s.lower == "false":
+        return False
+    else:
+        return True
 
 def options():
     parser = argparse.ArgumentParser()
     kitti_parser = parser.add_argument_group()
     kitti_parser.add_argument("--base_dir",type=str,default="/data/DATA/data_odometry/dataset/")
     kitti_parser.add_argument("--seq",type=int,default=0,choices=[i for i in range(11)])
-    kitti_parser.add_argument("--index_i",type=int,default=6)
-    kitti_parser.add_argument("--index_j",type=int,default=7)
+    kitti_parser.add_argument("--index_i",type=int,default=105)
+    kitti_parser.add_argument("--index_j",type=int,default=106)
     
     io_parser = parser.add_argument_group()
     io_parser.add_argument("--Twc_file",type=str,default="../Twc.txt")
@@ -30,6 +35,9 @@ def options():
     arg_parser.add_argument("--rot_perturb",type=float,nargs=3,default=[0,0,0])
     arg_parser.add_argument("--fps_sample",type=int,default=100)
     arg_parser.add_argument("--epipolar_threshold",type=float,default=2)
+    arg_parser.add_argument("--icp_radius",type=float,default=0.6)
+    arg_parser.add_argument("--corr_threshold",type=float,default=0.05)
+    arg_parser.add_argument("--view",type=str2bool,default=False)
     args = parser.parse_args()
     args.seq_id = "%02d"%args.seq
     return args
@@ -148,20 +156,29 @@ if __name__ == "__main__":
     src_pcd.transform(Tlw_list[args.index_i])
     tgt_pcd.transform(Tlw_list[args.index_j])
     reg_p2p = o3d.pipelines.registration.registration_icp(
-        src_pcd, tgt_pcd, 0.05,np.eye(4),
+        src_pcd, tgt_pcd, args.icp_radius, np.eye(4),
         o3d.pipelines.registration.TransformationEstimationPointToPoint())
+    src_pcd.transform(reg_p2p.transformation)
+    # check correspondences
     corr_set = np.array(reg_p2p.correspondence_set)
-    print(corr_set.shape[0])
+    print("Raw Correspondences:{}".format(corr_set.shape[0]))
+    src_pcd_corr_transformed = np.array(src_pcd.points)[corr_set[:,0]]
+    tgt_pcd_corr_transformed = np.array(tgt_pcd.points)[corr_set[:,1]]
+    corr_rev = np.sum((src_pcd_corr_transformed-tgt_pcd_corr_transformed)**2,axis=1) < args.corr_threshold ** 2
+    corr_set = corr_set[corr_rev]
+    # project LiDAR points onto the images
     src_pcd_corr = src_pcd_arr[corr_set[:,0]]
     tgt_pcd_corr = tgt_pcd_arr[corr_set[:,1]]
+    print("Selected Correspondences:{}".format(src_pcd_corr.shape[0]))
     src_proj_pts, tgt_proj_pts = project_corr_pts(src_pcd_corr, tgt_pcd_corr, extran, intran, img_shape)
-    
+    print("Projected Points:{}".format(src_proj_pts.shape[0]))
     if(args.fps_sample > 0):
-        src_proj_pts_sampled, tgt_proj_pts_sampled = fps_sample_corr_pts(src_proj_pts, tgt_proj_pts, args.fps_sample)
+        src_proj_pts_sampled, tgt_proj_pts_sampled = fps_sample_corr_pts(src_proj_pts, tgt_proj_pts, args.fps_sample)  # can be replaced by farthest_point_down_sample of Open3D
         Ncorr, d_mean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold=args.epipolar_threshold, draw=False)
         proj2src, proj2tgt, *_ = EpipolarwithF(src_proj_pts_sampled, tgt_proj_pts_sampled, F, threshold=args.epipolar_threshold, draw=True)
     else:
         proj2src, proj2tgt, Ncorr, d_mean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold=args.epipolar_threshold, draw=True)
+    # visualization
     print("Ground-truth Matches:{}, d-mean:{}".format(Ncorr,d_mean))
     plt.figure(figsize=[12,3.5],dpi=200)
     plt.subplot(2,2,1)
@@ -186,7 +203,8 @@ if __name__ == "__main__":
     plt.imshow(augproj2tgt)
     plt.subplots_adjust(hspace=0.4)
     plt.savefig("../demo/ep_{:06d}_{:06d}.pdf".format(args.index_i, args.index_j))
-    # draw_registration_result(src_pcd, tgt_pcd, np.eye(4))
+    if args.view:
+        draw_registration_result(src_pcd, tgt_pcd, np.eye(4))
     
 
     
