@@ -5,8 +5,8 @@ import os
 import cv2
 import open3d as o3d
 import copy
-import matplotlib
-matplotlib.use('agg')
+# import matplotlib
+# matplotlib.use('agg')
 from matplotlib import pyplot as plt
 from tools import *
 
@@ -75,17 +75,6 @@ def drawcorrpoints(img1,img2,pts1,pts2):
         img1 = cv2.circle(img1,tuple(pt1),5,color,-1)
         img2 = cv2.circle(img2,tuple(pt2),5,color,-1)
     return img1,img2
-
-def project_corr_pts(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, extran:np.ndarray, intran:np.ndarray, img_shape:tuple):
-    src_proj_pts, src_rev_idx = npproj(src_pcd_corr, extran, intran, img_shape)
-    tgt_proj_pts, tgt_rev_idx = npproj(tgt_pcd_corr, extran, intran, img_shape)
-    src_in_tgt_idx = np.isin(src_rev_idx, tgt_rev_idx)
-    tgt_in_src_idx = np.isin(tgt_rev_idx, src_rev_idx)
-    src_proj_pts = src_proj_pts[src_in_tgt_idx]
-    tgt_proj_pts = tgt_proj_pts[tgt_in_src_idx]
-    src_proj_pts = src_proj_pts.astype(np.int32)
-    tgt_proj_pts = tgt_proj_pts.astype(np.int32)
-    return src_proj_pts, tgt_proj_pts
 
 def EpipolarwithF(src_proj_pts:np.ndarray, tgt_proj_pts:np.ndarray, F:np.ndarray, threshold=2, dual=True, draw=True):
     # Find epilines corresponding to points in right image (second image) and
@@ -202,7 +191,8 @@ if __name__ == "__main__":
     plt.title("Mean Dist:{:0.6f}".format(aug_dmean))
     plt.imshow(augproj2tgt)
     plt.subplots_adjust(hspace=0.4)
-    plt.savefig("../demo/ep_{:06d}_{:06d}.pdf".format(args.index_i, args.index_j))
+    plt.show()
+    # plt.savefig("../demo/ep_{:06d}_{:06d}.pdf".format(args.index_i, args.index_j))
     if args.view:
         draw_registration_result(src_pcd, tgt_pcd, np.eye(4))
     

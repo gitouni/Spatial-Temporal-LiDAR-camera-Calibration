@@ -90,7 +90,7 @@ def npproj(pcd:np.ndarray, extran:np.ndarray, intran:np.ndarray, img_shape:tuple
     rev2 = (0<=u) * (u<W) * (0<=v) * (v<H)
     return np.stack((u[rev2],v[rev2]),axis=1), raw_index[rev2]  # (N, 2)
 
-def project_corr_pts(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, extran:np.ndarray, intran:np.ndarray,img_shape:tuple):
+def project_corr_pts(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, extran:np.ndarray, intran:np.ndarray, img_shape:tuple):
     src_proj_pts, src_rev_idx = npproj(src_pcd_corr, extran, intran, img_shape)
     tgt_proj_pts, tgt_rev_idx = npproj(tgt_pcd_corr, extran, intran, img_shape)
     src_in_tgt_idx = np.isin(src_rev_idx, tgt_rev_idx)
@@ -102,6 +102,7 @@ def project_corr_pts(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, extran:np
     return src_proj_pts, tgt_proj_pts
 
 def fps_sample_corr_pts(src_pts:np.ndarray, tgt_pts:np.ndarray, n_sample=100, return_idx=False):
+    assert(src_pts.shape[0] > 0), "Empty FPS Input: {} points.".format(src_pts.shape[0])
     fps = FPS(src_pts, n_sample)
     _, idx = fps.fit(return_index=True)
     src_pts_ = src_pts[idx]
