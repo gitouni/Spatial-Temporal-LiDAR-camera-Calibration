@@ -1,0 +1,30 @@
+%YAML:1.0
+gui:
+  verborse: true
+  vis: false
+
+odom:
+  voxel: 0.2
+  o3d_voxel: 0.2
+  keyframeMeterGap: 1.5
+  keyframeRadGap: 0.15
+  icp_corase_dist: 10
+  icp_refine_dist: 0.6
+  icp_max_iter: 30
+
+loopclosure:
+  LCkeyframeMeterGap: 10
+  LCkeyframeRadGap: 2
+  LCSubmapSize: 10
+  loopOverlapThre: 0.7
+  loopInlierRMSEThre: 0.3
+
+multiway:
+  MRmaxIter: 100
+  MRmaxCorrDist: 1.2
+  MREdgePruneThre: 0.25
+
+io:
+  isam_poses: ../floam_isam_00.txt
+  mr_graph: ../floam_pg.json
+  mr_poses: ../floam_mr_00.txt
