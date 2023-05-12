@@ -53,6 +53,28 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     }
     SetPose(F.mTcw);    
 }
+
+KeyFrame::KeyFrame(boost::archive::binary_iarchive &ira, const KeyFrameConstInfo *info, Map *pMap, vector<MapPoint*> Mpts ,unordered_map<int, MapPoint*> mapMptsId):
+    mnId(info->mnId),mnFrameId(info->mnFrameId),mTimeStamp(info->mTImeStamp),mnGridCols(info->mnGridCols), mnGridRows(info->mnGridRows),mfGridElementHeightInv(info->mfGridElementHeightInv),
+    mfGridElementWidthInv(info->mfGridElementWidthInv),fx(info->fx),fy(info->fy),cx(info->cx),cy(info->cy),invfx(info->invfx),invfy(info->invfy),mbf(info->mbf),mb(info->mb),
+    mThDepth(info->mThDepth),N(info->N),mnScaleLevels(info->mnScaleLevels),mfScaleFactor(info->mfScaleFactor),mfLogScaleFactor(info->mfLogScaleFactor),
+    mvLevelSigma2(info->mvLevelSigma2),mvInvLevelSigma2(info->mvInvLevelSigma2),mvOrderedWeights(info->mvOrderedWeights),
+    mnMinX(info->mnMinX),mnMinY(info->mnMinY),mnMaxX(info->mnMaxX),mnMaxY(info->mnMaxY),mHalfBaseline(info->mHalfBaseline),
+    mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0),
+    mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0), 
+    mpORBvocabulary(info->mpORBvocabulary), mpKeyFrameDB(info->mpKeyFrameDB),mvKeys(info->mvKeys),mvKeysUn(info->mvKeysUn),mDescriptors(info->mDescriptors),
+    mbFirstConnection(info->mbFirstConnection), mpParent(NULL), mbNotErase(false), mbToBeErased(false), mbBad(false){
+        ira >> *this;
+        for(int mapId:info->mvpMapPointsId){
+            auto it = mapMptsId.find(mapId);
+            if(it==mapMptsId.end()){
+                std::cout << "[Warning] " << __FILE__ << " Line " << __LINE__ <<": \033[33;1mUnconnected Map Points\033[0m" << std::endl;
+                continue;
+            }
+            mvpMapPoints.push_back(it->second);
+        }
+        SetPose(info->Tcw);
+    }
 KeyFrameConstInfo::KeyFrameConstInfo(cv::FileStorage &fs, KeyFrameDatabase *pKFDB, ORBVocabulary *pVoc):mpORBvocabulary(pVoc),mpKeyFrameDB(pKFDB){
     fs["mnId"] >> mnId;
     fs["mnFrameId"] >> mnFrameId;
@@ -97,27 +119,6 @@ KeyFrameConstInfo::KeyFrameConstInfo(cv::FileStorage &fs, KeyFrameDatabase *pKFD
     fs.release();
 }
 
-KeyFrame::KeyFrame(boost::archive::binary_iarchive &ira, const KeyFrameConstInfo *info, Map *pMap, vector<MapPoint*> Mpts ,unordered_map<int, MapPoint*> mapMptsId):
-    mnId(info->mnId),mnFrameId(info->mnFrameId),mTimeStamp(info->mTImeStamp),mnGridCols(info->mnGridCols), mnGridRows(info->mnGridRows),mfGridElementHeightInv(info->mfGridElementHeightInv),
-    mfGridElementWidthInv(info->mfGridElementWidthInv),fx(info->fx),fy(info->fy),cx(info->cx),cy(info->cy),invfx(info->invfx),invfy(info->invfy),mbf(info->mbf),mb(info->mb),
-    mThDepth(info->mThDepth),N(info->N),mnScaleLevels(info->mnScaleLevels),mfScaleFactor(info->mfScaleFactor),mfLogScaleFactor(info->mfLogScaleFactor),
-    mvLevelSigma2(info->mvLevelSigma2),mvInvLevelSigma2(info->mvInvLevelSigma2),mvOrderedWeights(info->mvOrderedWeights),
-    mnMinX(info->mnMinX),mnMinY(info->mnMinY),mnMaxX(info->mnMaxX),mnMaxY(info->mnMaxY),mHalfBaseline(info->mHalfBaseline),
-    mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0),
-    mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0), 
-    mpORBvocabulary(info->mpORBvocabulary), mpKeyFrameDB(info->mpKeyFrameDB),mvKeys(info->mvKeys),mvKeysUn(info->mvKeysUn),mDescriptors(info->mDescriptors),
-    mbFirstConnection(info->mbFirstConnection), mpParent(NULL), mbNotErase(false), mbToBeErased(false), mbBad(false){
-        ira >> *this;
-        for(int mapId:info->mvpMapPointsId){
-            auto it = mapMptsId.find(mapId);
-            if(it==mapMptsId.end()){
-                std::cout << "[Warning] " << __FILE__ << " Line " << __LINE__ <<": \033[33;1mUnconnected Map Points\033[0m" << std::endl;
-                continue;
-            }
-            mvpMapPoints.push_back(it->second);
-        }
-        SetPose(info->Tcw);
-    }
 void KeyFrame::GlobalConnection(const KeyFrameConstInfo *info, const unordered_map<int, KeyFrame*> &mapKFId){
     for(int id_:info->mspChildrensId){
         auto it = mapKFId.find(id_);

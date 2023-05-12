@@ -22,9 +22,9 @@
 #ifndef SYSTEM_H
 #define SYSTEM_H
 
-#include<string>
-#include<thread>
-#include<opencv2/core/core.hpp>
+#include <string>
+#include <thread>
+#include <opencv2/core/core.hpp>
 
 #include "Tracking.h"
 #include "FrameDrawer.h"
@@ -121,8 +121,8 @@ public:
     void SaveTrajectoryKITTI(const std::string &filename);
 
     // Save/Load functions
-    void SaveMap(const std::string &filename);
-    void SaveKeyFrames(const std::string &dirname);
+    void SaveMap(const std::string &filename) const;
+    void SaveKeyFrames(const std::string &dirname) const;
     void RestoreSystemFromFile(const std::string &keyFrameDir, const std::string &mapFilename);
     // void LoadMap(const std::string &filename, const std::vector<KeyFrame*> &KFList);
 
@@ -187,13 +187,13 @@ private:
     std::vector<MapPoint*> mTrackedMapPoints;
     std::vector<cv::KeyPoint> mTrackedKeyPointsUn;
     std::mutex mMutexState;
-    void makedir(const char* folder);
-    inline void checkpath(std::string &path){
+    void makedir(const char* folder) const;
+    void checkpath(std::string &path)const {
         if(path[path.size()-1] != '/')
             path = path + "/";
     }   
 
-    inline bool file_exist(const std::string path){
+    bool file_exist(const std::string path) const{
         return access(path.c_str(), F_OK) != -1;
     }
 };

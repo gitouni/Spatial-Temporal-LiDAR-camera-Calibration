@@ -525,7 +525,7 @@ size_t System::GetCurrentFid()
     return mpTracker->GetCurrentFid();
 }
 // Reloaded operator<<()
-void System::SaveMap(const std::string &filename)
+void System::SaveMap(const std::string &filename) const
 {
     std::cout << "Saving the Map..." << std::endl;
     cv::FileStorage fs(filename, cv::FileStorage::WRITE);
@@ -533,10 +533,9 @@ void System::SaveMap(const std::string &filename)
     std::cout << "Map Saved." << std::endl;
 }
 
-void System::SaveKeyFrames(const string &dirname)
+void System::SaveKeyFrames(const string &dirname) const
 {
-    std::string KeyFrameDir(dirname);
-    checkpath(KeyFrameDir);
+    std::string KeyFrameDir(dirname+"KeyFrames/");
     makedir(KeyFrameDir.c_str());
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames(true);
     sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
@@ -559,12 +558,25 @@ void System::SaveKeyFrames(const string &dirname)
         if(vpKFs.size() > 100)  // May wait some time. A simple Process Indicator is added.
         {
             if((i+1) % (vpKFs.size() / 10) == 0)
-                std::cout << 100.0*(i+1)/((double)vpKFs.size()) << "% Saved." << std::endl;
+                std::cout << 100.0*(i+1)/((double)vpKFs.size()) << "%% Saved." << std::endl;
         }
         
     }
-    std::cout << vpKFs.size() << " KeyFrames saved to " + KeyFrameDir << "." << std::endl;
+    std::cout << vpKFs.size() << " KeyFrames are saved to " + KeyFrameDir << "." << std::endl;
+    vector<int> vKFId;
+    vector<int> vKFFrameId;
+    for(auto it = vpKFs.begin(); it != vpKFs.end(); ++ it){
+        vKFFrameId.push_back((*it)->mnFrameId);
+        vKFId.push_back((*it)->mnId);
+    }
+    std::string IdFilename = dirname + "FrameId.yml";
+    cv::FileStorage fs(IdFilename, cv::FileStorage::WRITE);
+    fs << "mnId" << vKFId;
+    fs << "mnFrameId" << vKFFrameId;
+    fs.release();
+    std::cout << vpKFs.size() << " KeyFrame Ids are saved to " + IdFilename << "." << std::endl;
 }
+
 
 void System::RestoreSystemFromFile(const string &keyFrameDir, const string &mapFilename){
     string kFdirname(keyFrameDir);
@@ -650,7 +662,7 @@ void System::RestoreSystemFromFile(const string &keyFrameDir, const string &mapF
     }
 }
 
-void System::makedir(const char* folder){
+void System::makedir(const char* folder) const{
     if(access(folder,F_OK)){
         if(mkdir(folder,0755)!=0)
             printf("\033[1;31mDirectory %s created Failed with unknown error!\033[0m\n",folder);

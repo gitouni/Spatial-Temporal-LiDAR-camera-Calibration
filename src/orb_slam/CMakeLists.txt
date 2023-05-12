@@ -12,7 +12,7 @@ find_package(OpenCV 4 REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Pangolin REQUIRED)
 set(g2o_DIR "/usr/local/lib/g2o")
-find_package(g2o REQUIRED)
+
 include_directories(${G2O_INCLUDE_DIRS} "/usr/include/eigen3")
 include_directories(
 ${PROJECT_SOURCE_DIR}
@@ -21,7 +21,7 @@ ${EIGEN3_INCLUDE_DIR}
 ${Pangolin_INCLUDE_DIRS}
 )
 
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../lib)
 
 SET (G2O_LIBS cxsparse g2o_csparse_extension g2o_cli g2o_core g2o_interface g2o_parser g2o_solver_cholmod
 g2o_solver_csparse g2o_solver_dense g2o_solver_pcg g2o_stuff g2o_types_icp
