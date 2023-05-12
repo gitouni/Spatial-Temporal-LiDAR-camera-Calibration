@@ -9,6 +9,7 @@ int main(int argc, char **argv){
     }
     ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::MONOCULAR,false);
     std::string KeyFrameDir(argv[3]), mapFile(argv[4]);
+    SLAM.Shutdown();
     SLAM.RestoreSystemFromFile(KeyFrameDir, mapFile);
 
 }
