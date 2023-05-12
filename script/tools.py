@@ -101,6 +101,19 @@ def project_corr_pts(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, extran:np
     tgt_proj_pts = tgt_proj_pts.astype(np.int32)
     return src_proj_pts, tgt_proj_pts
 
+def project_corr_pts_idx(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, extran:np.ndarray, intran:np.ndarray, img_shape:tuple):
+    src_proj_pts, src_rev_idx = npproj(src_pcd_corr, extran, intran, img_shape)
+    tgt_proj_pts, tgt_rev_idx = npproj(tgt_pcd_corr, extran, intran, img_shape)
+    src_in_tgt_idx = np.isin(src_rev_idx, tgt_rev_idx)
+    tgt_in_src_idx = np.isin(tgt_rev_idx, src_rev_idx)
+    src_proj_pts = src_proj_pts[src_in_tgt_idx]
+    tgt_proj_pts = tgt_proj_pts[tgt_in_src_idx]
+    src_proj_pts = src_proj_pts.astype(np.int32)
+    tgt_proj_pts = tgt_proj_pts.astype(np.int32)
+    rev_idx = np.arange(src_rev_idx.size)
+    return src_proj_pts, tgt_proj_pts, rev_idx[src_in_tgt_idx]
+
+
 def fps_sample_corr_pts(src_pts:np.ndarray, tgt_pts:np.ndarray, n_sample=100, return_idx=False):
     assert(src_pts.shape[0] > 0), "Empty FPS Input: {} points.".format(src_pts.shape[0])
     fps = FPS(src_pts, n_sample)

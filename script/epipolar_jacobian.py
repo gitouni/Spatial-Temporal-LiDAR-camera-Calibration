@@ -33,11 +33,11 @@ def options():
     io_parser.add_argument("--Twl_file",type=str,default="../Twl.txt")
     
     arg_parser = parser.add_argument_group()
-    arg_parser.add_argument("--tsl_perturb",type=float,nargs=3,default=[0.1,-0.15,0.1])
+    arg_parser.add_argument("--tsl_perturb",type=float,nargs=3,default=[-0.1,0.15,0.1])
     arg_parser.add_argument("--rot_perturb",type=float,nargs=3,default=[0,0,0])
     arg_parser.add_argument("--fps_sample",type=int,default=100)
     arg_parser.add_argument("--epipolar_threshold",type=float,default=2)
-    arg_parser.add_argument("--icp_radius",type=float,default=0.6)
+    arg_parser.add_argument("--icp_radius",type=float,default=0.1)
     arg_parser.add_argument("--corr_threshold",type=float,default=0.05)
     arg_parser.add_argument("--view",type=str2bool,default=False)
     args = parser.parse_args()
@@ -94,16 +94,16 @@ def EpipolarwithF(src_proj_pts:np.ndarray, tgt_proj_pts:np.ndarray, F:np.ndarray
         src_dist:np.ndarray = np.abs(np.sum(src_proj_pts * lines1[:,:2], axis=1)+lines1[:,-1])
         tgt_dist:np.ndarray = np.abs(np.sum(tgt_proj_pts * lines2[:,:2], axis=1)+lines2[:,-1])
         rev_mask = np.logical_and(src_dist < threshold, tgt_dist < threshold)
-        d_mean = 0.5*(src_dist.mean() + tgt_dist.mean())
+        d_rmse = 0.5*(np.sqrt(np.sum(src_dist**2)/src_dist.size)+np.sqrt(np.sum(tgt_dist**2)/tgt_dist.size))
     else:
         src_dist:np.ndarray = np.abs(np.sum(src_proj_pts * lines1[:,:2], axis=1)+lines1[:,-1])
         rev_mask = src_dist < threshold
-        d_mean = src_dist.mean()
+        d_rmse = np.sqrt(np.sum(src_dist**2/src_dist.size))
     if draw:
         img5, img4 = drawlines(src_img,tgt_img,lines1,src_proj_pts,tgt_proj_pts)
-        return img5, img4, rev_mask.sum(), d_mean
+        return img5, img4, rev_mask.sum(), d_rmse
     else:
-        return rev_mask.sum(), d_mean
+        return rev_mask.sum(), d_rmse
 
 def EpipolarwithoutF(src_proj_pts:np.ndarray, tgt_proj_pts:np.ndarray, threshold=2, dual=True, draw=True):
     F, mask = cv2.findFundamentalMat(src_proj_pts, tgt_proj_pts, cv2.FM_LMEDS)
@@ -112,11 +112,11 @@ def EpipolarwithoutF(src_proj_pts:np.ndarray, tgt_proj_pts:np.ndarray, threshold
     src_proj_pts = src_proj_pts[mask.ravel()==1]
     tgt_proj_pts = tgt_proj_pts[mask.ravel()==1]
     if draw:
-        img5, img4, Ncorr, d_mean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold, dual, True)
-        return img5, img4, Ncorr, F, d_mean
+        img5, img4, Ncorr, d_rmse = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold, dual, True)
+        return img5, img4, Ncorr, F, d_rmse
     else:
-        Ncorr, d_mean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold, dual, False)
-        return Ncorr, F, d_mean
+        Ncorr, d_rmse = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold, dual, False)
+        return Ncorr, F, d_rmse
 
 
 def npproj_jac(pcd:np.ndarray, rvec:np.ndarray, tvec:np.ndarray, intran:np.ndarray, img_shape:tuple):
@@ -125,8 +125,10 @@ def npproj_jac(pcd:np.ndarray, rvec:np.ndarray, tvec:np.ndarray, intran:np.ndarr
     _, rev_idx = npproj(pcd, extran, intran, img_shape)
     assert(pcd[rev_idx].shape[0] > 0)
     img_pts, jac = cv2.projectPoints(pcd[rev_idx], rvec, tvec, intran, distCoeffs)
+    # img_pts, jac = cv2.projectPoints(pcd, rvec, tvec, intran, distCoeffs)
     jac:np.ndarray = jac.reshape(-1,2,jac.shape[-1])  # N, 2, 10+numDistCoeffs
     img_pts:np.ndarray = img_pts.reshape(-1,2)
+    # rev_idx = np.arange(img_pts.shape[0])
     return img_pts, jac[...,:6], rev_idx
 
 def project_corr_pts_jac(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, rvec:np.ndarray, tvec:np.ndarray, intran:np.ndarray, img_shape:tuple):
@@ -227,8 +229,6 @@ if __name__ == "__main__":
     args = options()
     augT = toMat(args.rot_perturb, args.tsl_perturb)
     print("augT:\n{}".format(augT))
-    Tcw_list = read_pose_file(args.Twc_file)
-    Tlw_list = read_pose_file(args.Twl_file)
     dataStruct = pykitti.odometry(args.base_dir, args.seq_id)
     calibStruct = dataStruct.calib
     extran = calibStruct.T_cam0_velo  # [4,4]
@@ -237,6 +237,7 @@ if __name__ == "__main__":
     motion:np.ndarray = dataStruct.poses[args.index_j] @ inv_pose(dataStruct.poses[args.index_i])
     print("Motion:\n{}".format(motion))
     F = computeF(motion, intran)
+    # F = F/np.linalg.norm(F,ord='fro')  # Normalize
     print("Fundamental Matrix:\n{}".format(F))
     src_pcd_arr = dataStruct.get_velo(args.index_i)[:,:3]  # [N, 3]
     tgt_pcd_arr = dataStruct.get_velo(args.index_j)[:,:3]  # [N, 3]
@@ -247,12 +248,15 @@ if __name__ == "__main__":
     tgt_pcd = o3d.geometry.PointCloud()
     src_pcd.points = o3d.utility.Vector3dVector(src_pcd_arr)
     tgt_pcd.points = o3d.utility.Vector3dVector(tgt_pcd_arr)
-    src_pcd.transform(Tlw_list[args.index_i])
-    tgt_pcd.transform(Tlw_list[args.index_j])
+    src_pcd.transform(inv_pose(extran) @ dataStruct.poses[args.index_i] @ extran)
+    tgt_pcd.transform(inv_pose(extran) @ dataStruct.poses[args.index_j] @ extran)
     reg_p2p = o3d.pipelines.registration.registration_icp(
         src_pcd, tgt_pcd, args.icp_radius, np.eye(4),
         o3d.pipelines.registration.TransformationEstimationPointToPoint())
     src_pcd.transform(reg_p2p.transformation)
+    checker = o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(args.icp_radius)
+    is_aligned = checker.Check(src_pcd, tgt_pcd, reg_p2p.correspondence_set,np.eye(4))
+    print("Is Aligned:{}".format(is_aligned))
     # check correspondences
     corr_set = np.array(reg_p2p.correspondence_set)
     print("Raw Correspondences:{}".format(corr_set.shape[0]))
@@ -268,8 +272,8 @@ if __name__ == "__main__":
     rvec0, tvec0 = toVec(aug_extran)
     x0 = np.concatenate((rvec0,tvec0))
     print("Initial Error:{}".format(optimizer.compute_err(x0)))
-    res = minimize(optimizer.compute_err, x0,  method='L-BFGS-B', jac=optimizer.compute_jac,
-               options={'disp': 1})
+    res = minimize(optimizer.compute_err, x0,  method='Nelder-Mead', jac=optimizer.compute_jac,
+               options={'disp': 100})
     print("Final Error:{}".format(res.fun))
     predict_extran = toMat(res.x[:3], res.x[3:])
     print("Aug:\n{}".format(aug_extran))
@@ -281,32 +285,32 @@ if __name__ == "__main__":
     print("Projected Points:{}".format(src_proj_pts.shape[0]))
     if(args.fps_sample > 0):
         src_proj_pts_sampled, tgt_proj_pts_sampled = fps_sample_corr_pts(src_proj_pts, tgt_proj_pts, args.fps_sample)  # can be replaced by farthest_point_down_sample of Open3D
-        Ncorr, d_mean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold=args.epipolar_threshold, draw=False)
+        Ncorr, d_rmse = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold=args.epipolar_threshold, draw=False)
         proj2src, proj2tgt, *_ = EpipolarwithF(src_proj_pts_sampled, tgt_proj_pts_sampled, F, threshold=args.epipolar_threshold, draw=True)
     else:
-        proj2src, proj2tgt, Ncorr, d_mean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold=args.epipolar_threshold, draw=True)
+        proj2src, proj2tgt, Ncorr, d_rmse = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold=args.epipolar_threshold, draw=True)
     # visualization
-    print("Ground-truth Matches:{}, d-mean:{}".format(Ncorr,d_mean))
+    print("Ground-truth Matches:{}, d-rmse:{}".format(Ncorr,d_rmse.item()))
     plt.figure(figsize=[12,3.5],dpi=200)
     plt.subplot(2,2,1)
     plt.title("Total:{} | Matched:{}".format(src_proj_pts.shape[0],Ncorr))
     plt.imshow(proj2src)
     plt.subplot(2,2,2)
-    plt.title("Mean Dist:{:0.6f}".format(d_mean))
+    plt.title("RMSE Dist:{:0.6f}".format(d_rmse.item()))
     plt.imshow(proj2tgt)
     src_proj_pts, tgt_proj_pts = project_corr_pts(src_pcd_corr, tgt_pcd_corr, aug_extran, intran, img_shape)
     if(args.fps_sample > 0):
         src_proj_pts_sampled, tgt_proj_pts_sampled = fps_sample_corr_pts(src_proj_pts, tgt_proj_pts, args.fps_sample)
-        augNcorr, aug_dmean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold=args.epipolar_threshold, draw=False)
+        augNcorr, aug_drmse = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold=args.epipolar_threshold, draw=False)
         augproj2src, augproj2tgt, *_ = EpipolarwithF(src_proj_pts_sampled, tgt_proj_pts_sampled, F, threshold=args.epipolar_threshold, draw=True)
     else:
-        augproj2src, augproj2tgt, augNcorr, aug_dmean = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold=args.epipolar_threshold, draw=True)
-    print("Augmented Matches:{}, d-mean:{}".format(augNcorr,aug_dmean))
+        augproj2src, augproj2tgt, augNcorr, aug_drmse = EpipolarwithF(src_proj_pts, tgt_proj_pts, F, threshold=args.epipolar_threshold, draw=True)
+    print("Augmented Matches:{}, d-rmse:{}".format(augNcorr,aug_drmse))
     plt.subplot(2,2,3)
     plt.title("Total:{} | Matched:{}".format(src_proj_pts.shape[0],augNcorr))
     plt.imshow(augproj2src)
     plt.subplot(2,2,4)
-    plt.title("Mean Dist:{:0.6f}".format(aug_dmean))
+    plt.title("RMSE Dist:{:0.6f}".format(aug_drmse))
     plt.imshow(augproj2tgt)
     plt.subplots_adjust(hspace=0.4)
     plt.show()
