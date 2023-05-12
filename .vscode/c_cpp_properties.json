@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/include",
+                "/usr/include/eigen3",
+                "/usr/include/opencv4",
+                "/usr/include/pcl-1.10"
+                // "/home/bit/.local/lib/python3.8/site-packages/pybind11/include",
+                // "/usr/include/python3.8"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-clang-x64"
+        }
+    ],
+    "version": 4
+}
