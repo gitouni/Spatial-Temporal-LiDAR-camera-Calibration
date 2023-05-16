@@ -1,26 +1,37 @@
 cmake_minimum_required(VERSION 3.5)
-set(CMAKE_CXX_FLAGS "-std=c++17 -Wno-dev")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g")
-set($ENV{LD_LIBRARY_PATH} "")
+set(CMAKE_CXX_FLAGS "-std=c++17")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g")  # -g -fsanitize=address
+execute_process(COMMAND source ${PROJECT_SOURCE_DIR}/config/settings.sh)  # clean LD_LIBRARY_PATH ENVPATH to avoid g2o conflicts with ROS
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 MESSAGE(${PROJECT_NAME} " Build type: " ${CMAKE_BUILD_TYPE})
 
 set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
-execute_process(COMMAND export LD_LIBRARY_PATH="")  # clean LD_LIBRARY_PATH ENVPATH to avoid g2o conflicts with ROS
 add_subdirectory(src/floam)
 add_subdirectory(src/orb_slam)
 add_subdirectory(src/scancontext)
 
 # g2o
-set(g2o_DIR "/usr/local/lib/g2o")
+set(g2o_DIR "/usr/local/lib")
 set(GLOG_LIBRARY_DIR /usr/local/lib/libglog.so)
 set(YAML_CPP_LIB /usr/local/lib/libyaml-cpp.so)
-
+link_libraries(${YAML_CPP_LIB})
 include_directories(${G2O_INCLUDE_DIRS} "/usr/include/eigen3")
-link_directories("/usr/local/lib/g2o")
-SET (G2O_LIBS
+link_directories(${g2o_DIR})
+# ${g2o_DIR}/libg2o_csparse_extension.so
+# ${g2o_DIR}/libg2o_core.so
+# ${g2o_DIR}/libg2o_solver_cholmod.so
+# ${g2o_DIR}/libg2o_solver_csparse.so
+# ${g2o_DIR}/libg2o_solver_dense.so
+# ${g2o_DIR}/libg2o_solver_pcg.so 
+# ${g2o_DIR}/libg2o_stuff.so
+# ${g2o_DIR}/libg2o_types_icp.so
+# ${g2o_DIR}/libg2o_types_sba.so
+# ${g2o_DIR}/libg2o_types_sim3.so
+# ${g2o_DIR}/libg2o_types_slam2d.so
+# ${g2o_DIR}/libg2o_types_slam3d.so
+set (G2O_LIBS
 g2o_csparse_extension
 g2o_core 
 g2o_solver_cholmod
@@ -95,7 +106,6 @@ src/examples/floam_backend.cpp
 add_dependencies(floam_backend backend)
 target_link_libraries(floam_backend
   backend
-  ${YAML_CPP_LIB}
 )
 
 set(ORB_INCLUDE_DIRS
