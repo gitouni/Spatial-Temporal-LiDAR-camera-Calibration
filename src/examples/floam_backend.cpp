@@ -39,6 +39,8 @@ int main(int argc, char** argv){
     option.MRmaxIter = config["multiway"]["MRmaxIter"].as<int>();
     option.MRmaxCorrDist = config["multiway"]["MRmaxCorrDist"].as<double>();
     option.MREdgePruneThre = config["multiway"]["MREdgePruneThre"].as<double>();
+    bool odom_refine = config["multiway"]["RefineOdom"].as<bool>();
+    bool use_multiway = config["multiway"]["use"].as<bool>();
     std::cout << "Parameters have been loaded from " << yaml_file << "." << std::endl;
     BackEndOptimizer optimizer(option);
     std::thread p(&BackEndOptimizer::LoopClosureRegThread, &optimizer);
@@ -48,8 +50,10 @@ int main(int argc, char** argv){
     optimizer.UpdateISAM();
     optimizer.writePoses(output_isam_poses);
     // *** Results of ISAM and Multway are too similar! ***
-    // optimizer.MultiRegistration();
-    // optimizer.writePoseGraph(output_pose_graph);
-    // optimizer.UpdatePosesFromPG();
-    // optimizer.writePoses(output_mr_poses);
+    if(use_multiway){
+        optimizer.MultiRegistration(odom_refine);
+        optimizer.writePoseGraph(output_pose_graph);
+        optimizer.UpdatePosesFromPG();
+        optimizer.writePoses(output_mr_poses);        
+    }
 }

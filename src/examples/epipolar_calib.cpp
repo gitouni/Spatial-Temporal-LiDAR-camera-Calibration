@@ -35,7 +35,7 @@ int main(int argc, char** argv){
     double s;
     
     
-    // writePose(resFileName, rigidTCL, s);
+    // writeSim3(resFileName, rigidTCL, s);
     // std::cout << "Result of Hand-eye Calibration saved to " << resFileName << std::endl;
     ORB_SLAM2::System VSLAM(VocFilename, ORBSetFilename, ORB_SLAM2::System::MONOCULAR, false);
     VSLAM.Shutdown(); // Do not need any thread

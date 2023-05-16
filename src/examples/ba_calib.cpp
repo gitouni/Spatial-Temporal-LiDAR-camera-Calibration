@@ -6,18 +6,37 @@
 #include "kitti_tools.h"
 #include <limits>
 #include "orb_slam/include/System.h"
+#include <yaml-cpp/yaml.h>
+#include <vector>
+#include <map>
 
 int main(int argc, char** argv){
-    if(argc < 8){
-        std::cout << "Got " << argc - 1 << " Parameters, but expected 7";
-        throw std::invalid_argument("Expected parameters: Twc_file Twl_file res_file orb_setting_file orb_vocabulary_file keyFrame_dir map_file");
+    if(argc < 4){
+        std::cerr << "Got " << argc - 1 << " Parameters, but Expected parameters: yaml_file orb_setting_file orb_vocabulary_file" << std::endl;
         exit(0);
     }
-    std::vector<Eigen::Isometry3d> vTwc, vTwl;
-    std::string TwcFilename(argv[1]), TwlFilename(argv[2]), resFileName(argv[3]);
-    std::string ORBSetFilename(argv[4]), VocFilename(argv[5]), KeyFrameDir(argv[6]), MapFileNmae(argv[7]);
+    std::string config_file(argv[1]), ORBSetFilename(argv[2]), VocFilename(argv[3]);
+    YAML::Node config = YAML::LoadFile(config_file);
+    std::string base_dir = config["BaseDir"].as<std::string>();
+    checkpath(base_dir);
+    std::vector<Eigen::Isometry3d> vTwc, vTwl, vTwlraw;
+    std::string TwcFilename = base_dir + config["VOFile"].as<std::string>();
+    std::string TwlFilename = base_dir + config["LOFile"].as<std::string>();
+    std::string resFileName = base_dir + config["ResFile"].as<std::string>();
+    std::string KeyFrameDir = base_dir + config["KeyFrameDir"].as<std::string>();
+    std::string KyeFrameIdFile = base_dir + config["VOIdFile"].as<std::string>();
+    std::string MapFileNmae = base_dir + config["MapFile"].as<std::string>();
+    std::map<std::string, int> method_options = config["method_options"].as<std::map<std::string, int> >();
+    std::string method = config["method"].as<std::string>();
+    assert(method_options.count(method)>0);
+    std::cout << "Use " << method << " Bundle Adjustment for calibration." << std::endl;
     ReadPoseList(TwcFilename, vTwc);
-    ReadPoseList(TwlFilename, vTwl);
+    ReadPoseList(TwlFilename, vTwlraw);
+    YAML::Node FrameIdCfg = YAML::LoadFile(KyeFrameIdFile);
+    std::vector<int> vKFFrameId = FrameIdCfg["mnFrameId"].as<std::vector<int>>();
+    for(auto &KFId:vKFFrameId)
+        vTwl.push_back(vTwlraw[KFId]);
+    vTwlraw.clear();
     std::cout << "Load " << vTwc.size() << " Twc Pose files." << std::endl;
     std::cout << "Load " << vTwl.size() << " Twl Pose files." << std::endl;
     assert(vTwc.size()==vTwl.size());
@@ -31,8 +50,7 @@ int main(int argc, char** argv){
     double s;
     
     
-    // writePose(resFileName, rigidTCL, s);
-    // std::cout << "Result of Hand-eye Calibration saved to " << resFileName << std::endl;
+
     ORB_SLAM2::System VSLAM(VocFilename, ORBSetFilename, ORB_SLAM2::System::MONOCULAR, false);
     VSLAM.Shutdown(); // Do not need any thread
     VSLAM.RestoreSystemFromFile(KeyFrameDir, MapFileNmae);
@@ -44,28 +62,36 @@ int main(int argc, char** argv){
     std::cout << "s :" << s << std::endl;
 
     std::tie(RCL,tCL,s) = HECalibRobustKernelg2o(vmTwc, vmTwl, RCL, tCL, s, true, 0.003);
-    std::cout << "Robust Kernel Hand-eye Calibration:\n";
+    std::cout << "Robust Kernel Hand-eye Calibration with Regulation:\n";
     std::cout << "Rotation: \n" << RCL << std::endl;
     std::cout << "Translation: \n" << tCL << std::endl;
     std::cout << "s :" << s << std::endl;
     Eigen::Isometry3d rigidTCL = Eigen::Isometry3d::Identity();
     rigidTCL.rotate(RCL);
-    // rigidTCL.pretranslate(tCL);
+    rigidTCL.pretranslate(tCL);
 
     Eigen::Isometry3d TCL0(rigidTCL);
     int ngood;
-    // ngood = VSLAM.OptimizeExtrinsicGlobal(vTwl, TCL0, s);
-    // std::cout << "Bundle Adjustment Optimization (Global):\n";
-    // std::cout << "Rotation: \n" << TCL0.rotation() << std::endl;
-    // std::cout << "Translation: \n" << TCL0.translation() << std::endl;
-    // std::cout<< "scale=  "<< s <<"  "<<"ngood=  "<<ngood<<std::endl;
+    if(method == "global"){
+        ngood = VSLAM.OptimizeExtrinsicGlobal(vTwl, TCL0, s);
+        std::cout << "Bundle Adjustment Optimization (Global):\n";
+        std::cout << "Rotation: \n" << TCL0.rotation() << std::endl;
+        std::cout << "Translation: \n" << TCL0.translation() << std::endl;
+        std::cout<< "scale=  "<< s <<"  "<<"ngood=  "<<ngood<<std::endl;
+    }
+    else
+    {
+        TCL0 = rigidTCL;
+        ngood = VSLAM.OptimizeExtrinsicLocal(vTwl, TCL0, s);
+        std::cout << "Bundle Adjustment Optimization (Local):\n";
+        std::cout << "Rotation: \n" << TCL0.rotation() << std::endl;
+        std::cout << "Translation: \n" << TCL0.translation() << std::endl;
+        std::cout<< "scale=  "<< s <<"  "<<"ngood=  "<< ngood <<std::endl;
+    }
+    writeSim3(resFileName, TCL0, s);
+    std::cout << "Result of BA Calibration saved to " << resFileName << std::endl;
 
-    TCL0 = rigidTCL;
-    ngood = VSLAM.OptimizeExtrinsicLocal(vTwl, TCL0, s);
-    std::cout << "Bundle Adjustment Optimization (Local):\n";
-    std::cout << "Rotation: \n" << TCL0.rotation() << std::endl;
-    std::cout << "Translation: \n" << TCL0.translation() << std::endl;
-    std::cout<< "scale=  "<< s <<"  "<<"ngood=  "<< ngood <<std::endl;
+
 
     // std::tie(RCL,tCL,s) = HECalibRobustKernelg2o(vmTwc, vmTwl, RCL, tCL, s);
     // std::cout << "Robust Hand-eye Calibration:\n";
