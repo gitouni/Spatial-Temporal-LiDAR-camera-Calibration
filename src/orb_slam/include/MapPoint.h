@@ -52,6 +52,7 @@ public:
     int Observations();
 
     void AddObservation(KeyFrame* pKF,size_t idx);
+    void AddObservationStatic(KeyFrame* pKF, size_t idx);
     void EraseObservation(KeyFrame* pKF);
     void AssignReference(KeyFrame* pKF);
 

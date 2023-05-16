@@ -74,6 +74,8 @@ public:
     cv::Mat mK;
     std::vector<cv::KeyPoint> mvKeys;
     std::vector<cv::KeyPoint> mvKeysUn;
+    std::vector<float> mvuRight; // negative value for monocular points
+    std::vector<float> mvDepth; // negative value for monocular points
     cv::Mat mDescriptors;
     bool mbFirstConnection;
 

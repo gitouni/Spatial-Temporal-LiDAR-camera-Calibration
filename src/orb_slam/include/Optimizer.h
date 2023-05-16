@@ -26,7 +26,15 @@
 #include "KeyFrame.h"
 #include "LoopClosing.h"
 #include "Frame.h"
+#include "g2o/core/block_solver.h"
+#include "g2o/core/optimization_algorithm_levenberg.h"
+#include "g2o/solvers/eigen/linear_solver_eigen.h"
+#include "g2o/types/sba/types_six_dof_expmap.h"
+#include "g2o/core/robust_kernel_impl.h"
+#include "g2o/solvers/dense/linear_solver_dense.h"
 #include "g2o/types/sim3/types_seven_dof_expmap.h"
+#include "g2o/core/auto_differentiation.h"
+#include <g2o/solvers/cholmod/linear_solver_cholmod.h>
 #include <Eigen/Dense>
 #include <opencv2/core/eigen.hpp>
 namespace ORB_SLAM2
@@ -44,7 +52,7 @@ public:
     void static GlobalBundleAdjustemnt(Map* pMap, int nIterations=5, bool *pbStopFlag=NULL,
                                        const unsigned long nLoopKF=0, const bool bRobust = true);
     void static LocalBundleAdjustment(KeyFrame* pKF, bool *pbStopFlag, Map *pMap);
-    int static PoseOptimization(Frame* pFrame);
+    static int PoseOptimization(Frame* pFrame);
 
     // if bFixScale is true, 6DoF optimization (stereo,rgbd), 7DoF otherwise (mono)
     void static OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* pCurKF,
@@ -58,8 +66,8 @@ public:
                             g2o::Sim3 &g2oS12, const float th2, const bool bFixScale);
     
     //optimize extrinsic
-    int static OptimizeExtrinsicGlobal(vector<KeyFrame*> &allKF, const vector<Eigen::Isometry3d> &vTwl, Eigen::Isometry3d &Tcl, double &scale, bool verbose=true);
-    int static OptimizeExtrinsicLocal(vector<KeyFrame*> &allKF, const vector<Eigen::Isometry3d> &vTwl, Eigen::Isometry3d &Tcl, double &scale, bool verbose=true);
+    static int OptimizeExtrinsicGlobal(vector<KeyFrame*> &allKF, const vector<Eigen::Isometry3d> &vTwl, Eigen::Isometry3d &Tcl, double &scale, bool verbose=true);
+    static int OptimizeExtrinsicLocal(vector<KeyFrame*> &allKF, const vector<Eigen::Isometry3d> &vTwl, Eigen::Isometry3d &Tcl, double &scale, bool verbose=true);
 };
 
 } //namespace ORB_SLAM
