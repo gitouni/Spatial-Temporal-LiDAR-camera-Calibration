@@ -5,7 +5,7 @@
 #include <vector>
 #include "pcl/io/pcd_io.h"
 #include "kitti_tools.h"
-#include <opencv2/opencv.hpp>
+#include <opencv2/highgui/highgui.hpp>
 
 template <typename PointType>
 bool readPointCloud(const std::string filename, pcl::PointCloud<PointType> &point_cloud)
@@ -147,7 +147,7 @@ bool readImage(const std::string &strImageFilename, cv::Mat &img, int flag=cv::I
  * @param fs // output file stream
  * @param mat  // pose 3x4 or 4x4
  */
-void writeKittiData(std::ofstream &fs, Eigen::Isometry3d &mat, bool end){
+void writeKittiData(std::ofstream &fs, const Eigen::Isometry3d &mat, bool end){
     short cnt = 0;
     for(short i=0; i<3; ++i)
         for(short j=0; j<4; ++j){
