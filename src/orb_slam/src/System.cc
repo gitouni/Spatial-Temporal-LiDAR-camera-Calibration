@@ -557,8 +557,11 @@ void System::SaveKeyFrames(const string &dirname) const
         vpKFs[i]->saveData(fileName, mapKFId, mapMptId);
         if(vpKFs.size() > 100)  // May wait some time. A simple Process Indicator is added.
         {
-            if((i+1) % (vpKFs.size() / 10) == 0)
-                std::cout << 100.0*(i+1)/((double)vpKFs.size()) << "%% Saved." << std::endl;
+            if((i+1) % (vpKFs.size() / 10) == 0){
+                char msg[30];
+                sprintf(msg, "%0.2lf %% Saved.", 100.0*(i+1)/vpKFs.size());
+                std::cout << msg << std::endl;
+            }
         }
         
     }
@@ -629,8 +632,7 @@ void System::RestoreSystemFromFile(const string &keyFrameDir, const string &mapF
         boost::archive::binary_iarchive iar(ifs);
         KeyFrameConstInfo* constInfo(new KeyFrameConstInfo(cvfs, mpKeyFrameDatabase, mpVocabulary));
         KeyFrame* newKF(new KeyFrame(std::ref(iar), constInfo, mpMap, goodMapPoints, mapMapPointId));
-
-    #pragma omp ordered
+    #pragma omp ordered  // single thread
     {
         vConstInfo[fi] = constInfo;
         vpKF[fi] = newKF;
@@ -638,7 +640,11 @@ void System::RestoreSystemFromFile(const string &keyFrameDir, const string &mapF
         {
             ++ cnt;
             if((cnt) % (FeatFile.size() / 10) == 0)
-                std::cout << 100.0*(cnt+1)/((double)FeatFile.size()) << "% Loaded." << std::endl;
+            {
+                char msg[30];
+                sprintf(msg, "%0.2lf %% Saved.", 100.0*(cnt+1)/FeatFile.size());
+                std::cout << msg << std::endl;
+            }
         }
     }
     }
@@ -651,8 +657,8 @@ void System::RestoreSystemFromFile(const string &keyFrameDir, const string &mapF
     for(int kFi = 0; kFi < (int) vpKF.size(); kFi++)
         vpKF[kFi]->GlobalConnection(vConstInfo[kFi], mapKeyFrameId);
     std::cout << "KeyFrame-to-KeyFrame Connections Restored." << std::endl;
-    cv::FileStorage refs(mapFilename, cv::FileStorage::READ);
-    mpMap->RestoreMapPointsConnection(refs, mapKeyFrameId, mapMapPointId);
+    cv::FileStorage MapFs(mapFilename, cv::FileStorage::READ);
+    mpMap->RestoreMapPointsConnection(MapFs, mapKeyFrameId, mapMapPointId);
     std::cout << "MapPoint-to-KeyFrame Connections Restored." << std::endl;
     for(KeyFrame* pKF: vpKF)
         mpMap->AddKeyFrame(pKF);

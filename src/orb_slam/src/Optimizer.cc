@@ -19,14 +19,7 @@
 */
 
 #include "Optimizer.h"
-#include "g2o/core/block_solver.h"
-#include "g2o/core/optimization_algorithm_levenberg.h"
-#include "g2o/solvers/eigen/linear_solver_eigen.h"
-#include "g2o/types/sba/types_six_dof_expmap.h"
-#include "g2o/core/robust_kernel_impl.h"
-#include "g2o/solvers/dense/linear_solver_dense.h"
-#include "g2o/types/sim3/types_seven_dof_expmap.h"
-#include "g2o/core/auto_differentiation.h"
+
 #include <Eigen/StdVector>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -693,7 +686,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
         g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
         vSE3->setEstimate(Converter::toSE3Quat(pKFi->GetPose()));
         vSE3->setId(pKFi->mnId);
-        vSE3->setFixed(pKFi->mnId==0);
+        vSE3->setFixed(pKFi->mnId==0); // fix the first KeyFrame as reference
         optimizer.addVertex(vSE3);
         if(pKFi->mnId>maxKFid)
             maxKFid=pKFi->mnId;
@@ -1338,7 +1331,7 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     }
 
     // Optimize!
-    optimizer.initializeOptimization();
+    optimizer.initializeOptimization(); // will not optimize edges with level > 0
     optimizer.optimize(5);
 
     // Check inliers
@@ -1419,7 +1412,7 @@ int Optimizer::OptimizeExtrinsicLocal(vector<KeyFrame*> &allKF, const vector<Eig
     int nInitialCorrespondences=0;
 
     // Set ex vertex
-    CalibVertex * vCalib = new CalibVertex();
+    CalibVertex * v = new CalibVertex();
     Eigen::Matrix3d Rcl=Tcl.rotation();
     Eigen::Vector3d tcl=Tcl.translation();
     g2o::Vector7 p_tcl;
@@ -1427,10 +1420,10 @@ int Optimizer::OptimizeExtrinsicLocal(vector<KeyFrame*> &allKF, const vector<Eig
     p_tcl.head<3>() = rot.axis()*rot.angle();
     p_tcl.segment<3>(3)=tcl;
     p_tcl[6]=scale;
-    vCalib->setEstimate(p_tcl);
-    vCalib->setId(0);
-    // vCalib->setFixed(false);
-    optimizer.addVertex(vCalib);
+    v->setEstimate(p_tcl);
+    v->setId(0);
+    // v->setFixed(false);
+    optimizer.addVertex(v);
     int N=0;
     for(size_t i=0;i<allKF.size();i++)
     {
@@ -1446,7 +1439,7 @@ int Optimizer::OptimizeExtrinsicLocal(vector<KeyFrame*> &allKF, const vector<Eig
         KeyFrame* pF = allKF[i];
         Eigen::Isometry3d Twl = vTwl[i];
         //变换到局部：包括地图点，以及当前帧的雷达位姿
-        std::vector<KeyFrame*> ConKFS = pF->GetBestCovisibilityKeyFrames(20);
+        vector<KeyFrame*> ConKFS = pF->GetBestCovisibilityKeyFrames(20);
         sort(ConKFS.begin(),ConKFS.end(),KeyFrame::lId);
         KeyFrame* pOldestKF = ConKFS[0];
         cv::Mat T_old_w = pOldestKF->GetPose();
@@ -1455,7 +1448,8 @@ int Optimizer::OptimizeExtrinsicLocal(vector<KeyFrame*> &allKF, const vector<Eig
         Eigen::Isometry3d Told_l = Twold.inverse() * Twl;
         Eigen::Isometry3d Told_linv = Told_l.inverse();
 
-        const int n = (int)pF->GetMapPointMatches().size();
+        vector<MapPoint*> MatchedMapPoints = pF->GetMapPointMatches();
+        const int n = (int)MatchedMapPoints.size();
         const float deltaMono = sqrt(5.991);
         Eigen::Matrix3d R_l_old = Told_linv.rotation();
         Eigen::Vector3d t_l_old = Told_linv.translation();
@@ -1468,54 +1462,47 @@ int Optimizer::OptimizeExtrinsicLocal(vector<KeyFrame*> &allKF, const vector<Eig
 
         for(int i=0; i<n; i++)
         {
-            try{
-                MapPoint* pMP = pF->GetMapPoint(i);
-                if(pMP)
-                {
-                    // Monocular observation
+            MapPoint* pMP = MatchedMapPoints[i];
+            if(pMP)
+            {
+                // Monocular observation
+        
+                nInitialCorrespondences++;
+                vbOutlier[i] = false;
+
+                Eigen::Matrix<double,2,1> obs;
+                const int kpId = pF->mmapMpt2Kpt[pMP];
+                const cv::KeyPoint &kpUn = pF->mvKeysUn[kpId];
+                obs << kpUn.pt.x, kpUn.pt.y;
+
+                calibEdge* e = new calibEdge;
+                e->setId(i);
+                e->setVertex(0, v);
+                e->setMeasurement(obs);
+                const float invSigma2 = pF->mvInvLevelSigma2[kpUn.octave];
+                e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
+
+                g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                e->setRobustKernel(rk);
+                rk->setDelta(deltaMono);
+
+                e->fx = pF->fx;
+                e->fy = pF->fy;
+                e->cx = pF->cx;
+                e->cy = pF->cy;
+                cv::Mat Xw = pMP->GetWorldPos();
+                cv::Mat Xold= T_old_w.rowRange(0,3).colRange(0,3) * Xw + T_old_w.rowRange(0,3).col(3);
+                e->Xw[0] = Xold.at<float>(0);
+                e->Xw[1] = Xold.at<float>(1);
+                e->Xw[2] = Xold.at<float>(2);
+        
+                e->Tlw_quat=Tl_old_quat;
+                optimizer.addEdge(e);
+
+                vpEdgesMono.push_back(e);
+                vnIndexEdgeMono.push_back(i);
             
-                    nInitialCorrespondences++;
-                    vbOutlier[i] = false;
-
-                    Eigen::Matrix<double,2,1> obs;
-                    const int kpId = pF->mmapMpt2Kpt[pMP];
-                    const cv::KeyPoint &kpUn = pF->mvKeysUn[kpId];
-                    obs << kpUn.pt.x, kpUn.pt.y;
-
-                    calibEdge* e = new calibEdge;
-
-                    e->setVertex(0, vCalib);
-                    e->setMeasurement(obs);
-                    const float invSigma2 = pF->mvInvLevelSigma2[kpUn.octave];
-                    e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
-
-                    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-                    e->setRobustKernel(rk);
-                    rk->setDelta(deltaMono);
-
-                    e->fx = pF->fx;
-                    e->fy = pF->fy;
-                    e->cx = pF->cx;
-                    e->cy = pF->cy;
-                    cv::Mat Xw = pMP->GetWorldPos();
-                    cv::Mat Xold= T_old_w.rowRange(0,3).colRange(0,3) * Xw + T_old_w.rowRange(0,3).col(3);
-                    e->Xw[0] = Xold.at<float>(0);
-                    e->Xw[1] = Xold.at<float>(1);
-                    e->Xw[2] = Xold.at<float>(2);
-            
-                    e->Tlw_quat=Tl_old_quat;
-                    optimizer.addEdge(e);
-
-                    vpEdgesMono.push_back(e);
-                    vnIndexEdgeMono.push_back(i);
-                
-                }
-            }catch(const std::exception &e){
-                std::cout << "Exception at MapPoint " << i << e.what() << std::endl;
             }
-
-            
-
         }
     }
 
@@ -1534,11 +1521,11 @@ int Optimizer::OptimizeExtrinsicLocal(vector<KeyFrame*> &allKF, const vector<Eig
     {
 
         //vScale->setEstimate(scale);
-        vCalib->setEstimate(p_tcl);
+        v->setEstimate(p_tcl);
         optimizer.initializeOptimization(0);
         optimizer.optimize(its[it]);
-
         nBad=0;
+        
         for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
         {
             calibEdge* e = vpEdgesMono[i];
@@ -1601,7 +1588,7 @@ int Optimizer::OptimizeExtrinsicGlobal(vector<KeyFrame*> &allKF, const vector<Ei
 
     cv::Mat Tc0w = allKF[0]->GetPose();
     // Set ex vertex
-    CalibVertex * vCalib = new CalibVertex();
+    CalibVertex * v = new CalibVertex();
     Eigen::Matrix3d Rcl = Tcl.rotation();
     Eigen::Vector3d tcl = Tcl.translation();
     g2o::Vector7 p_tcl;
@@ -1609,10 +1596,10 @@ int Optimizer::OptimizeExtrinsicGlobal(vector<KeyFrame*> &allKF, const vector<Ei
     p_tcl.head<3>() = rot.axis() * rot.angle();
     p_tcl.segment<3>(3) = tcl;
     p_tcl[6] = scale;
-    vCalib->setEstimate(p_tcl);
-    vCalib->setId(0);
-    // vCalib->setFixed(false);
-    optimizer.addVertex(vCalib);
+    v->setEstimate(p_tcl);
+    v->setId(0);
+    // v->setFixed(false);
+    optimizer.addVertex(v);
     // Set scale vertex
     // scaleVertex * vScale = new scaleVertex();
     // vScale->setEstimate(scale);
@@ -1633,7 +1620,8 @@ int Optimizer::OptimizeExtrinsicGlobal(vector<KeyFrame*> &allKF, const vector<Ei
     {
         KeyFrame* pF=allKF[i];
         Eigen::Isometry3d Twl=vTwl[i];
-        const int n = (int)pF->GetMapPointMatches().size();
+        vector<MapPoint*> MatchedMapPoints = pF->GetMapPointMatches();
+        const int n = (int)MatchedMapPoints.size();
         const float deltaMono = sqrt(5.991);
         Eigen::Matrix3d Rlw = Twl.rotation();
         Eigen::Vector3d tlw = Twl.translation();
@@ -1646,52 +1634,46 @@ int Optimizer::OptimizeExtrinsicGlobal(vector<KeyFrame*> &allKF, const vector<Ei
 
         for(int i=0; i<n; i++)
         {
-            try{
-                MapPoint* pMP = pF->GetMapPoint(i);
-                if(pMP)
-                {
-                    // Monocular observation
+            MapPoint* pMP = MatchedMapPoints[i];
+            if(pMP)
+            {
+                // Monocular observation
+        
+                nInitialCorrespondences++;
+                vbOutlier[i] = false;
+
+                Eigen::Matrix<double,2,1> obs;
+                const int KFId = pF->mmapMpt2Kpt[pMP];
+                const cv::KeyPoint &kpUn = pF->mvKeysUn[KFId];
+                obs << kpUn.pt.x, kpUn.pt.y;
+
+                calibEdge* e = new calibEdge;
+
+                e->setVertex(0, v);
+                e->setMeasurement(obs);
+                const float invSigma2 = pF->mvInvLevelSigma2[kpUn.octave];
+                e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
+
+                g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                e->setRobustKernel(rk);
+                rk->setDelta(deltaMono);
+
+                e->fx = pF->fx;
+                e->fy = pF->fy;
+                e->cx = pF->cx;
+                e->cy = pF->cy;
+                cv::Mat Xw = pMP->GetWorldPos();
+                cv::Mat Xc0= Tc0w.rowRange(0,3).colRange(0,3)*Xw+Tc0w.rowRange(0,3).col(3);
+                e->Xw[0] = Xc0.at<float>(0);
+                e->Xw[1] = Xc0.at<float>(1);
+                e->Xw[2] = Xc0.at<float>(2);
+        
+                e->Tlw_quat = Tlw_quat;
+                optimizer.addEdge(e);
+
+                vpEdgesMono.push_back(e);
+                vnIndexEdgeMono.push_back(i);
             
-                    nInitialCorrespondences++;
-                    vbOutlier[i] = false;
-
-                    Eigen::Matrix<double,2,1> obs;
-                    const int KFId = pF->mmapMpt2Kpt[pMP];
-                    const cv::KeyPoint &kpUn = pF->mvKeysUn[KFId];
-                    obs << kpUn.pt.x, kpUn.pt.y;
-
-                    calibEdge* e = new calibEdge;
-
-                    e->setVertex(0, vCalib);
-                    e->setMeasurement(obs);
-                    const float invSigma2 = pF->mvInvLevelSigma2[kpUn.octave];
-                    e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
-
-                    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-                    e->setRobustKernel(rk);
-                    rk->setDelta(deltaMono);
-
-                    e->fx = pF->fx;
-                    e->fy = pF->fy;
-                    e->cx = pF->cx;
-                    e->cy = pF->cy;
-                    cv::Mat Xw = pMP->GetWorldPos();
-                    cv::Mat Xc0= Tc0w.rowRange(0,3).colRange(0,3)*Xw+Tc0w.rowRange(0,3).col(3);
-                    e->Xw[0] = Xc0.at<float>(0);
-                    e->Xw[1] = Xc0.at<float>(1);
-                    e->Xw[2] = Xc0.at<float>(2);
-            
-                    e->Tlw_quat = Tlw_quat;
-                    optimizer.addEdge(e);
-
-                    vpEdgesMono.push_back(e);
-                    vnIndexEdgeMono.push_back(i);
-                
-                }
-                // std::cout << "Successfully add MapPoint " << i << std::endl;
-            }
-            catch(const std::exception &e){
-                std::cout << "Exception at MapPoint " << i << ": " << e.what() << std::endl;
             }
         }
     }
@@ -1711,7 +1693,7 @@ int Optimizer::OptimizeExtrinsicGlobal(vector<KeyFrame*> &allKF, const vector<Ei
     {
 
         //vScale->setEstimate(scale);
-        vCalib->setEstimate(p_tcl);
+        v->setEstimate(p_tcl);
         optimizer.initializeOptimization(0);
         optimizer.optimize(its[it]);
 

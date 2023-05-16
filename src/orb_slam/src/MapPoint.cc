@@ -113,6 +113,14 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
         nObs++;
 }
 
+void MapPoint::AddObservationStatic(KeyFrame* pKF, size_t idx)
+{
+    unique_lock<mutex> lock(mMutexFeatures);
+    if(mObservations.count(pKF))
+        return;
+    mObservations[pKF]=idx;
+}
+
 void MapPoint::EraseObservation(KeyFrame* pKF)
 {
     bool bBad=false;

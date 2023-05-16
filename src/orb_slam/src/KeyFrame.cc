@@ -28,6 +28,52 @@ namespace ORB_SLAM2
 
 long unsigned int KeyFrame::nNextId=0;
 
+KeyFrameConstInfo::KeyFrameConstInfo(cv::FileStorage &fs, KeyFrameDatabase *pKFDB, ORBVocabulary *pVoc):mpORBvocabulary(pVoc),mpKeyFrameDB(pKFDB){
+    fs["mnId"] >> mnId;
+    fs["mnFrameId"] >> mnFrameId;
+    fs["mTImeStamp"] >> mTImeStamp;
+    fs["mnGridCols"] >> mnGridCols;
+    fs["mnGridRows"] >> mnGridRows;
+    fs["mfGridElementWidthInv"] >> mfGridElementWidthInv;
+    fs["mfGridElementHeightInv"] >> mfGridElementHeightInv;
+    fs["fx"] >> fx;
+    fs["fy"] >> fy;
+    fs["cx"] >> cx;
+    fs["cy"] >> cy;
+    fs["invfx"] >> invfx;
+    fs["invfy"] >> invfy;
+    fs["mbf"] >> mbf;
+    fs["mb"] >> mb;
+    fs["mThDepth"] >> mThDepth;
+    fs["N"] >> N;
+    fs["mnScaleLevels"] >> mnScaleLevels;
+    fs["mfScaleFactor"] >> mfScaleFactor;
+    fs["mfLogScaleFactor"] >> mfLogScaleFactor;
+    fs["mvScaleFactors"] >> mvScaleFactors;
+    fs["mvLevelSigma2"] >> mvLevelSigma2;
+    fs["mvInvLevelSigma2"] >> mvInvLevelSigma2;
+    fs["mnMinX"] >> mnMinX;
+    fs["mnMinY"] >> mnMinY;
+    fs["mnMaxX"] >> mnMaxX;
+    fs["mnMaxY"] >> mnMaxY;
+    fs["mK"] >> mK;
+    fs["mvKeys"] >> mvKeys;
+    fs["mvKeysUn"] >> mvKeysUn;
+    fs["mvuRight"] >> mvuRight;
+    fs["mvDepth"] >> mvDepth;
+    fs["mDescriptors"] >> mDescriptors;
+    fs["mbFirstConnection"] >> mbFirstConnection;
+    fs["mHalfBaseline"] >> mHalfBaseline;
+    fs["mvpMapPointsId"] >> mvpMapPointsId;
+    fs["mvpOrderedConnectedKeyFramesId"] >> mvpOrderedConnectedKeyFramesId;
+    fs["mvOrderedWeights"] >> mvOrderedWeights;
+    fs["mpParentId"] >> mpParentId;
+    fs["mspChildrensId"] >> mspChildrensId;
+    fs["mspLoopEdgesId"] >> mspLoopEdgesId;
+    fs["Pose"] >> Tcw;
+    fs.release();
+}
+
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     mnFrameId(F.mnId),  mTimeStamp(F.mTimeStamp), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
     mfGridElementWidthInv(F.mfGridElementWidthInv), mfGridElementHeightInv(F.mfGridElementHeightInv),
@@ -62,8 +108,10 @@ KeyFrame::KeyFrame(boost::archive::binary_iarchive &ira, const KeyFrameConstInfo
     mnMinX(info->mnMinX),mnMinY(info->mnMinY),mnMaxX(info->mnMaxX),mnMaxY(info->mnMaxY),mHalfBaseline(info->mHalfBaseline),
     mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0),
     mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0), 
-    mpORBvocabulary(info->mpORBvocabulary), mpKeyFrameDB(info->mpKeyFrameDB),mvKeys(info->mvKeys),mvKeysUn(info->mvKeysUn),mDescriptors(info->mDescriptors),
-    mbFirstConnection(info->mbFirstConnection), mpParent(NULL), mbNotErase(false), mbToBeErased(false), mbBad(false){
+    mpORBvocabulary(info->mpORBvocabulary), mpKeyFrameDB(info->mpKeyFrameDB),mvKeys(info->mvKeys),mvKeysUn(info->mvKeysUn),
+    mvuRight(info->mvuRight),mvDepth(info->mvDepth),mDescriptors(info->mDescriptors),
+    mbFirstConnection(info->mbFirstConnection), mpParent(NULL), mbNotErase(false), mbToBeErased(false), mbBad(false)
+    {
         ira >> *this;
         for(int mapId:info->mvpMapPointsId){
             auto it = mapMptsId.find(mapId);
@@ -74,50 +122,9 @@ KeyFrame::KeyFrame(boost::archive::binary_iarchive &ira, const KeyFrameConstInfo
             mvpMapPoints.push_back(it->second);
         }
         SetPose(info->Tcw);
+        
     }
-KeyFrameConstInfo::KeyFrameConstInfo(cv::FileStorage &fs, KeyFrameDatabase *pKFDB, ORBVocabulary *pVoc):mpORBvocabulary(pVoc),mpKeyFrameDB(pKFDB){
-    fs["mnId"] >> mnId;
-    fs["mnFrameId"] >> mnFrameId;
-    fs["mTImeStamp"] >> mTImeStamp;
-    fs["mnGridCols"] >> mnGridCols;
-    fs["mnGridRows"] >> mnGridRows;
-    fs["mfGridElementWidthInv"] >> mfGridElementWidthInv;
-    fs["mfGridElementHeightInv"] >> mfGridElementHeightInv;
-    fs["fx"] >> fx;
-    fs["fy"] >> fy;
-    fs["cx"] >> cx;
-    fs["cy"] >> cy;
-    fs["invfx"] >> invfx;
-    fs["invfy"] >> invfy;
-    fs["mbf"] >> mbf;
-    fs["mb"] >> mb;
-    fs["mThDepth"] >> mThDepth;
-    fs["N"] >> N;
-    fs["mnScaleLevels"] >> mnScaleLevels;
-    fs["mfScaleFactor"] >> mfScaleFactor;
-    fs["mfLogScaleFactor"] >> mfLogScaleFactor;
-    fs["mvScaleFactors"] >> mvScaleFactors;
-    fs["mvLevelSigma2"] >> mvLevelSigma2;
-    fs["mvInvLevelSigma2"] >> mvInvLevelSigma2;
-    fs["mnMinX"] >> mnMinX;
-    fs["mnMinY"] >> mnMinY;
-    fs["mnMaxX"] >> mnMaxX;
-    fs["mnMaxY"] >> mnMaxY;
-    fs["mK"] >> mK;
-    fs["mvKeys"] >> mvKeys;
-    fs["mvKeysUn"] >> mvKeysUn;
-    fs["mDescriptors"] >> mDescriptors;
-    fs["mbFirstConnection"] >> mbFirstConnection;
-    fs["mHalfBaseline"] >> mHalfBaseline;
-    fs["mvpMapPointsId"] >> mvpMapPointsId;
-    fs["mvpOrderedConnectedKeyFramesId"] >> mvpOrderedConnectedKeyFramesId;
-    fs["mvOrderedWeights"] >> mvOrderedWeights;
-    fs["mpParentId"] >> mpParentId;
-    fs["mspChildrensId"] >> mspChildrensId;
-    fs["mspLoopEdgesId"] >> mspLoopEdgesId;
-    fs["Pose"] >> Tcw;
-    fs.release();
-}
+
 
 void KeyFrame::GlobalConnection(const KeyFrameConstInfo *info, const unordered_map<int, KeyFrame*> &mapKFId){
     for(int id_:info->mspChildrensId){
@@ -144,8 +151,10 @@ void KeyFrame::GlobalConnection(const KeyFrameConstInfo *info, const unordered_m
         }
         mvpOrderedConnectedKeyFrames.push_back(it->second);
     }
+    if(info->mnId == 0)  // skip Frame 0 (do not have Parent)
+        return;
     auto it = mapKFId.find(info->mpParentId);
-    if(mnId!=0 && it==mapKFId.end()) // do not render warning for the first KeyFrame
+    if(it==mapKFId.end())
         std::cout << "[Warning]" << __FILE__ << " Line " << __LINE__ <<": \033[33;1mUnconnected KeyFrame for mpParentId\033[0m" << std::endl;
     else
         mpParent = it->second;
@@ -202,9 +211,8 @@ void KeyFrame::saveData(const string baseName, const unordered_map<KeyFrame*, in
     of << "N" << N;
     of << "mvKeys" << mvKeys;
     of << "mvKeysUn" << mvKeysUn;
-    // Stereo: 
-    // of << "mvuRight" << mvuRight;
-    // of << "mvDepth" << mvDepth;
+    of << "mvuRight" << mvuRight;
+    of << "mvDepth" << mvDepth;
     of << "mDescriptors" << mDescriptors;
     of << "mnScaleLevels" << mnScaleLevels;
     of << "mfScaleFactor" << mfScaleFactor;

@@ -166,32 +166,34 @@ void Map::RestoreMap(cv::FileStorage &fs, vector<int> &vkFId)
 void Map::RestoreMapPointsConnection(cv::FileStorage &fs, unordered_map<int, KeyFrame*> &mapKFId, unordered_map<int, MapPoint*> &mapMptId)
 {
     cv::FileNode mptsfn = fs["mspMapPoints"];
-    for(cv::FileNodeIterator NodeIt = mptsfn.begin(); NodeIt != mptsfn.end(); ++NodeIt){
+    for(cv::FileNodeIterator NodeIt = mptsfn.begin(); NodeIt != mptsfn.end(); ++NodeIt)  // MapPoint FileNode
+    {
         vector<int> mobsMapKFId, mMapKFInId;
         int MptId;
         (*NodeIt)["mobsMapKFId"] >> mobsMapKFId;
         (*NodeIt)["mMapKFInId"] >> mMapKFInId;
         (*NodeIt)["mnId"] >> MptId;
         assert(mobsMapKFId.size() == mMapKFInId.size());
-        auto MptIt = mapMptId.find(MptId);
+        auto MptIt = mapMptId.find(MptId); // verify the MapPoint
         if(MptIt == mapMptId.end()){
             std::cout << "[Warning] " <<__FILE__ << " Line " << __LINE__ <<": \033[33;1mLost MapPoint in Hash Table\033[0m" << std::endl;
                 continue;
         }
-        MapPoint* pMpt = mapMptId[MptId];
+        MapPoint* pMpt = mapMptId[MptId]; // retrive the valid MapPoint
         for(int i = 0; i < (int) mobsMapKFId.size(); ++i){
             int KFId = mobsMapKFId[i], KFInId = mMapKFInId[i];
-            auto KFIt = mapKFId.find(KFId);
+            auto KFIt = mapKFId.find(KFId);   // verify the KeyFrame
             if(KFIt == mapKFId.end()){
                 std::cout << "[Warning] " <<__FILE__ << " Line " << __LINE__ <<": \033[33;1mUnconnected MapPoint for KeyFrame\033[0m" << std::endl;
                 continue;
             }
-            if(KFInId > (int)KFIt->second->mvKeysUn.size() - 1){
+            if(KFInId > (int)(KFIt->second->mvKeysUn.size()-1) || KFInId < 0){
                 std::cout << "[Warning] " <<__FILE__ << " Line " << __LINE__ <<": \033[33;1mIndex of Connected MapPoint Overflow the size of Keypoints\033[0m" << std::endl;
                 continue;
             }
             KFIt->second->mmapMpt2Kpt[pMpt] = KFInId;   
-            // pMpt->AddObservation(KFIt->second, KFInId);    // why Segment Fault??
+            if(!pMpt->IsInKeyFrame(KFIt->second))
+                pMpt->AddObservationStatic(KFIt->second, (size_t)KFInId);    // why Segment Fault??
         }
     }
     fs.release();
