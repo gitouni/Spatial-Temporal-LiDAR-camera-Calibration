@@ -405,7 +405,7 @@ void BackEndOptimizer::UpdatePosesFromPG(){
         FramePoses[i].matrix() = PoseGraph.nodes_[i].pose_.inverse();
     }
     if(verborse)
-        std::cout << "" << PoseGraph.nodes_.size() << "Poses Updated from PoseGraph" << std::endl;
+        std::cout << "" << PoseGraph.nodes_.size() << " Poses Updated from PoseGraph" << std::endl;
 }
 
 /**
@@ -456,9 +456,9 @@ void BackEndOptimizer::MultiRegistration(bool OdomRefinement){
             );
             PoseGraph.edges_.push_back(edge);
             lastPointCloud = CurrPointCloud;
-            if(verborse && (i % 10 == 0)){
+            if(verborse && (i % 100 == 0)){
                 char msg[100];
-                sprintf(msg, "Odom Refinement: %0.2lf %% Finished", (double)(i)*100/(FramePoses.size()-1));
+                sprintf(msg, "Odom Refinement: %0.2lf %% Finished", 100.0*i/(FramePoses.size()-1));
                 std::cout << msg << std::endl;
             }
         }
@@ -476,7 +476,7 @@ void BackEndOptimizer::MultiRegistration(bool OdomRefinement){
             lastPointCloud = CurrPointCloud;
             if(verborse && (i % 100 == 0)){
                 char msg[100];
-                sprintf(msg, "Odom Copied: %0.2lf %% Finished", (double)(i)*100/(FramePoses.size()-1));
+                sprintf(msg, "Odom Copied: %0.2lf %% Finished", 100.0*i/(FramePoses.size()-1));
                 std::cout << msg << std::endl;
             }
         }
