@@ -1,0 +1,11 @@
+%YAML:1.0
+---
+BaseDir: ../KITTI-00
+KeyFrameDir: KeyFrames
+VOFile: Twc.txt
+VOIdFile: FrameId.yml
+MapFile: Map.xml
+LOFile: floam_isam_00.txt
+ResFile: ba_calib_00.txt
+method: local # global or local
+method_options: {"global":1,"local":2}

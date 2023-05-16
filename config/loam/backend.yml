@@ -20,9 +20,11 @@ loopclosure:
   loopInlierRMSEThre: 0.3
 
 multiway:
+  use: false
   MRmaxIter: 100
   MRmaxCorrDist: 1.2
   MREdgePruneThre: 0.25
+  RefineOdom: false
 
 io:
   isam_poses: ../floam_isam_00.txt

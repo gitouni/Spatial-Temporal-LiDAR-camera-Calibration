@@ -1,0 +1,13 @@
+%YAML:1.0
+---
+io:
+  BaseDir: ../KITTI-00
+  VOFile: Twc.txt
+  LOFile: floam_isam_00.txt
+  VOIdFile: FrameId.yml
+  ResFile: he_calib_00.txt
+
+runtime:
+  regulation: true
+  regulation_weight: 0.003
+  verborse: true
