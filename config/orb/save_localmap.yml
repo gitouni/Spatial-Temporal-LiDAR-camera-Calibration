@@ -1,0 +1,8 @@
+orb_setting:
+  vocabulary: ../data/Vocabulary/ORBvoc.txt
+  setting: ../config/orb_ori/KITTI00-02.yaml
+  
+io:
+  KeyFrameDir: ../KITTI-00/KeyFrames/
+  MapFile: ../KITTI-00/Map.xml
+  SavePath: ../KITTI-00/orb_map_00.pcd
