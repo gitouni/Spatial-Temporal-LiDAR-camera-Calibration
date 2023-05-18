@@ -1,0 +1,21 @@
+%YAML:1.0
+---
+io:
+  lidar_pcd: ../KITTI-00/floam_map_00.pcd
+  lidar_pose: ../KITTI-00/floam_isam_00.txt
+  cam_pcd: ../KITTI-00/orb_map_00.pcd
+  init_sim3: ../KITTI-00/he_calib_00.txt
+  FrameId: ../KITTI-00/FrameId.yml
+  savePath: ../KITTI-00/icp_calib_00.txt
+
+runtime:
+  max_corr_dist: 1
+  max_iter: 100
+
+vis:
+  use_vis: true
+  height: 960
+  width: 1280
+  name: "Map ICP"
+  cam_pcd_color: [0.7,0.3,0.8]
+  lidar_pcd_color: [0.5,0.8,0.3]
