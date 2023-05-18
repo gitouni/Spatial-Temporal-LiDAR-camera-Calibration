@@ -71,6 +71,7 @@ if (Open3D_FOUND)
 endif()
 include_directories(
   include
+  ${PROJECT_SOURCE_DIR}/include
   ${PROJECT_SOURCE_DIR}/src
 )
 
@@ -126,38 +127,48 @@ ${PROJECT_SOURCE_DIR}/lib/libfloam.so
 ${PCL_LIBRARIES}
 )
 
-add_executable(kitti_floam src/examples/floam_kitti.cpp)
-add_dependencies(kitti_floam floam)
-target_link_libraries(kitti_floam
+add_executable(floam_run src/examples/floam_kitti.cpp)
+add_dependencies(floam_run floam)
+target_link_libraries(floam_run
 ${FLOAM_LIBRARIES}
 )
 
 
-add_executable(kitti_orb src/examples/orb_kitti.cpp)
-add_dependencies(kitti_orb ORB_SLAM2)
-target_link_libraries(kitti_orb
+add_executable(orb_run src/examples/orb_kitti.cpp)
+add_dependencies(orb_run ORB_SLAM2)
+target_link_libraries(orb_run
 ${ORB_LIBARIES}
 )
-target_include_directories(kitti_orb PRIVATE 
+target_include_directories(orb_run PRIVATE 
 ${ORB_INCLUDE_DIRS}
 )
 
-add_executable(kitti_orb_store src/examples/orb_kitti_store.cpp)
-add_dependencies(kitti_orb_store ORB_SLAM2)
-target_link_libraries(kitti_orb_store
+add_executable(orb_store src/examples/orb_kitti_store.cpp)
+add_dependencies(orb_store ORB_SLAM2)
+target_link_libraries(orb_store
 ${ORB_LIBARIES}
 ${PCL_LIBRARIES}
 )
-target_include_directories(kitti_orb_store PRIVATE 
+target_include_directories(orb_store PRIVATE 
 ${ORB_INCLUDE_DIRS}
 )
 
-add_executable(kitti_orb_restore src/examples/orb_restore.cpp)
-add_dependencies(kitti_orb_restore ORB_SLAM2)
-target_link_libraries(kitti_orb_restore
+add_executable(orb_restore src/examples/orb_restore.cpp)
+add_dependencies(orb_restore ORB_SLAM2)
+target_link_libraries(orb_restore
 ${ORB_LIBARIES}
 )
-target_include_directories(kitti_orb_restore PRIVATE 
+target_include_directories(orb_restore PRIVATE 
+${ORB_INCLUDE_DIRS}
+)
+
+add_executable(orb_save_map src/examples/orb_save_map.cpp)
+add_dependencies(orb_save_map ORB_SLAM2)
+target_link_libraries(orb_save_map
+${ORB_LIBARIES}
+${Open3D_LIBRARIES}
+)
+target_include_directories(orb_save_map PRIVATE 
 ${ORB_INCLUDE_DIRS}
 )
 # add_executable(kitti_union src/examples/union_kitti.cpp)
@@ -179,6 +190,11 @@ ${ORB_LIBARIES}
 target_include_directories(ba_calib PRIVATE 
 include
 ${ORB_INCLUDE_DIRS}
+)
+
+add_executable(icp_calib src/examples/icp_calib.cpp)
+target_link_libraries(icp_calib
+${Open3D_LIBRARIES}
 )
 
 add_executable(kitti_he_demo src/examples/he_demo_kitti.cpp)
