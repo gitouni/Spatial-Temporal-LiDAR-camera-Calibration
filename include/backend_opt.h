@@ -15,6 +15,7 @@
 #include <open3d/pipelines/registration/GlobalOptimizationMethod.h>
 #include <open3d/utility/Logging.h>
 #include <open3d/io/PoseGraphIO.h>
+#include <open3d/io/PointCloudIO.h>
 #include <open3d/pipelines/registration/Feature.h>
 
 #include <open3d/visualization/visualizer/Visualizer.h>
@@ -112,7 +113,8 @@ public:
     void PerformLoopClosure(const int j, open3d::geometry::PointCloud &PointCloud);
     void MultiRegistration(bool OdomRefinement=false);
     void writePoseGraph(const std::string &filename) const;
-    void writePoses(const std::string &filename);
+    void writePoses(const std::string &filename);  // not const because unique_lock for FramePoses
+    void SaveMap(const std::string &filename);  // not const because unique_lock for FramePoses
 
 private:
     bool verborse;
