@@ -77,7 +77,18 @@ def nptran(pcd:np.ndarray, rigdtran:np.ndarray) -> np.ndarray:
     pcd_ = rigdtran[:3, :3] @ pcd_ + rigdtran[:3, [3]]
     return pcd_.T
 
-def npproj(pcd:np.ndarray, extran:np.ndarray, intran:np.ndarray, img_shape:tuple) -> np.ndarray:
+def npproj(pcd:np.ndarray, extran:np.ndarray, intran:np.ndarray, img_shape:tuple):
+    """_summary_
+
+    Args:
+        pcd (np.ndarray): Nx3\\
+        extran (np.ndarray): 4x4\\
+        intran (np.ndarray): 3x3\\
+        img_shape (tuple): HxW\\
+
+    Returns:
+        _type_: uv (N,2), rev (N,)
+    """
     H, W = img_shape
     pcd_ = nptran(pcd, extran)  # (N, 3)
     pcd_ = intran @ pcd_.T  # (3, N)
@@ -88,7 +99,7 @@ def npproj(pcd:np.ndarray, extran:np.ndarray, intran:np.ndarray, img_shape:tuple
     u = u[rev]/w[rev]
     v = v[rev]/w[rev]
     rev2 = (0<=u) * (u<W) * (0<=v) * (v<H)
-    return np.stack((u[rev2],v[rev2]),axis=1), raw_index[rev2]  # (N, 2)
+    return np.stack((u[rev2],v[rev2]),axis=1), raw_index[rev2]  # (N, 2), (N,)
 
 def project_corr_pts(src_pcd_corr:np.ndarray, tgt_pcd_corr:np.ndarray, extran:np.ndarray, intran:np.ndarray, img_shape:tuple):
     src_proj_pts, src_rev_idx = npproj(src_pcd_corr, extran, intran, img_shape)
