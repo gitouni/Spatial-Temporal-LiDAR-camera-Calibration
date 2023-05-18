@@ -13,7 +13,12 @@ from tools import *
 os.chdir(os.path.dirname(__file__))
 
 def str2bool(s:str) -> bool:
-    if s.lower == "false":
+    if s.isdigit():
+        if float(s) > 0:
+            return True
+        else:
+            return False
+    if s.lower() == "false":
         return False
     else:
         return True
