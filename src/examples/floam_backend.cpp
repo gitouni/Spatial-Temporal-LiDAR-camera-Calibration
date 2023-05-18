@@ -14,33 +14,40 @@ int main(int argc, char** argv){
    
     auto option = BackEndOption();
     YAML::Node config = YAML::LoadFile(yaml_file);
+    YAML::Node gui_config = config["gui"];
+    YAML::Node io_config = config["io"];
+    YAML::Node odom_config = config["odom"];
+    YAML::Node loop_config = config["loopclosure"];
+    YAML::Node multiway_config = config["multiway"];
+    std::string output_pose_graph = io_config["mr_graph"].as<std::string>();
+    std::string output_isam_poses = io_config["isam_poses"].as<std::string>();
+    std::string output_mr_poses = io_config["mr_poses"].as<std::string>();
+    bool save_map = io_config["save_map"].as<bool>();
+    std::string map_path = io_config["map_path"].as<std::string>();
 
-    std::string output_pose_graph = config["io"]["mr_graph"].as<std::string>();
-    std::string output_isam_poses = config["io"]["isam_poses"].as<std::string>();
-    std::string output_mr_poses = config["io"]["mr_poses"].as<std::string>();
     assert(output_pose_graph.substr(output_pose_graph.find_last_of('.') + 1) == "json"); // suffix of a Posegraph must be '.json', or your effort is in vain!
     
-    option.verborse = config["gui"]["verborse"].as<bool>();
-    option.vis = config["gui"]["vis"].as<bool>();
+    option.verborse = gui_config["verborse"].as<bool>();
+    option.vis = gui_config["vis"].as<bool>();
 
-    option.voxel = config["odom"]["voxel"].as<double>();
-    option.keyframeMeterGap = config["odom"]["keyframeMeterGap"].as<double>();
-    option.keyframeRadGap = config["odom"]["keyframeRadGap"].as<double>();
-    option.icp_corase_dist = config["odom"]["icp_corase_dist"].as<double>();
-    option.icp_refine_dist = config["odom"]["icp_refine_dist"].as<double>();
-    option.icp_max_iter = config["odom"]["icp_max_iter"].as<int>();
+    option.voxel = odom_config["voxel"].as<double>();
+    option.keyframeMeterGap = odom_config["keyframeMeterGap"].as<double>();
+    option.keyframeRadGap = odom_config["keyframeRadGap"].as<double>();
+    option.icp_corase_dist = odom_config["icp_corase_dist"].as<double>();
+    option.icp_refine_dist = odom_config["icp_refine_dist"].as<double>();
+    option.icp_max_iter = odom_config["icp_max_iter"].as<int>();
 
-    option.LCkeyframeMeterGap = config["loopclosure"]["LCkeyframeMeterGap"].as<double>();
-    option.LCkeyframeRadGap = config["loopclosure"]["LCkeyframeRadGap"].as<double>();
-    option.LCSubmapSize = config["loopclosure"]["LCSubmapSize"].as<int>();
-    option.loopOverlapThre = config["loopclosure"]["loopOverlapThre"].as<double>();
-    option.loopInlierRMSEThre = config["loopclosure"]["loopInlierRMSEThre"].as<double>();
+    option.LCkeyframeMeterGap = loop_config["LCkeyframeMeterGap"].as<double>();
+    option.LCkeyframeRadGap = loop_config["LCkeyframeRadGap"].as<double>();
+    option.LCSubmapSize = loop_config["LCSubmapSize"].as<int>();
+    option.loopOverlapThre = loop_config["loopOverlapThre"].as<double>();
+    option.loopInlierRMSEThre = loop_config["loopInlierRMSEThre"].as<double>();
 
-    option.MRmaxIter = config["multiway"]["MRmaxIter"].as<int>();
-    option.MRmaxCorrDist = config["multiway"]["MRmaxCorrDist"].as<double>();
-    option.MREdgePruneThre = config["multiway"]["MREdgePruneThre"].as<double>();
-    bool odom_refine = config["multiway"]["RefineOdom"].as<bool>();
-    bool use_multiway = config["multiway"]["use"].as<bool>();
+    option.MRmaxIter = multiway_config["MRmaxIter"].as<int>();
+    option.MRmaxCorrDist = multiway_config["MRmaxCorrDist"].as<double>();
+    option.MREdgePruneThre = multiway_config["MREdgePruneThre"].as<double>();
+    bool odom_refine = multiway_config["RefineOdom"].as<bool>();
+    bool use_multiway = multiway_config["use"].as<bool>();
     std::cout << "Parameters have been loaded from " << yaml_file << "." << std::endl;
     BackEndOptimizer optimizer(option);
     std::thread p(&BackEndOptimizer::LoopClosureRegThread, &optimizer);
@@ -56,4 +63,6 @@ int main(int argc, char** argv){
         optimizer.UpdatePosesFromPG();
         optimizer.writePoses(output_mr_poses);        
     }
+    if(save_map){}
+        optimizer.SaveMap(map_path);
 }
