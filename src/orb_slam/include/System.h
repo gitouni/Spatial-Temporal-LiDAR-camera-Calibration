@@ -129,10 +129,13 @@ public:
 
     // Information from most recent processed frame
     // You can call this right after TrackMonocular (or stereo or RGBD)
-    void GetKeyFramePoses(std::vector<cv::Mat> &vKFTwc, std::vector<std::size_t> &vKFFrameId);
+    void GetKeyFramePoses(std::vector<cv::Mat> &vKFTwc, std::vector<std::size_t> &vKFFrameId) const;
+    cv::Mat GetKeyFramePose(const std::size_t &KFId) const;
+    cv::Mat GetKeyFrameInvPose(const std::size_t &KFId) const;
     int GetTrackingState();
     std::vector<MapPoint*> GetTrackedMapPoints();
     std::vector<cv::KeyPoint> GetTrackedKeyPointsUn();
+    std::vector<MapPoint*> GetAllMapPoints(bool only_good=true);
     std::size_t GetLastLoopKFid();
     std::size_t GetCurrentFid();
 
