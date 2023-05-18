@@ -526,3 +526,21 @@ void BackEndOptimizer::MultiRegistration(bool OdomRefinement){
     if(verborse)
         std::cout << "Multiway Registration Finished." << std::endl;
 }
+
+void BackEndOptimizer::SaveMap(const std::string &filename)
+{
+    std::unique_lock<std::mutex> lock(FramePoseMutex);
+    open3d::geometry::PointCloud Map;
+    for(std::size_t i=0; i<FramePoses.size(); ++i)
+    {
+        Eigen::Isometry3d Pose = FramePoses[i];
+        open3d::geometry::PointCloud laserCloud = LoadPCD(i);
+        Map += laserCloud.Transform(Pose.matrix());
+    }
+    auto option = open3d::io::WritePointCloudOption(
+        false,false,true
+    );
+    open3d::io::WritePointCloud(filename,*(Map.VoxelDownSample(voxel)),option);
+    if(verborse)
+        std::cout << "Map saved to " << filename << std::endl;
+}
