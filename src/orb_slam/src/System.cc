@@ -474,7 +474,7 @@ void System::SaveTrajectoryKITTI(const string &filename)
     f.close();
     cout << endl << "trajectory saved!" << endl;
 }
-void System::GetKeyFramePoses(std::vector<cv::Mat> &vKFTwc, std::vector<std::size_t> &vKFFrameId){
+void System::GetKeyFramePoses(std::vector<cv::Mat> &vKFTwc, std::vector<std::size_t> &vKFFrameId) const{
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames(true);
     sort(vpKFs.begin(), vpKFs.end(), KeyFrame::lId);
     for(size_t i=0;i<vpKFs.size();i++)
@@ -482,6 +482,22 @@ void System::GetKeyFramePoses(std::vector<cv::Mat> &vKFTwc, std::vector<std::siz
         vKFTwc.push_back(vpKFs[i]->GetPoseInverse());
         vKFFrameId.push_back(vpKFs[i]->mnFrameId);
     }
+}
+
+cv::Mat System::GetKeyFramePose(const std::size_t &KFId) const{
+   
+    vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames(true);
+    assert(KFId>=0 && KFId < vpKFs.size());
+    sort(vpKFs.begin(), vpKFs.end(), KeyFrame::lId);
+    return vpKFs[KFId]->GetPose();
+}
+
+cv::Mat System::GetKeyFrameInvPose(const std::size_t &KFId) const{
+   
+    vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames(true);
+    assert(KFId>=0 && KFId < vpKFs.size());
+    sort(vpKFs.begin(), vpKFs.end(), KeyFrame::lId);
+    return vpKFs[KFId]->GetPoseInverse();
 }
 //add by chy
 int System::OptimizeExtrinsicLocal(const vector<Eigen::Isometry3d> &vTwl, Eigen::Isometry3d &Tcl, double &scale, bool verbose)
@@ -513,6 +529,12 @@ vector<cv::KeyPoint> System::GetTrackedKeyPointsUn()
 {
     unique_lock<mutex> lock(mMutexState);
     return mTrackedKeyPointsUn;
+}
+
+std::vector<MapPoint*> System::GetAllMapPoints(bool only_good)
+{
+    unique_lock<mutex> lock(mMutexState);
+    return mpMap->GetAllMapPoints(only_good);
 }
 
 size_t System::GetLastLoopKFid()
