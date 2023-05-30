@@ -135,7 +135,8 @@ public:
     int GetTrackingState();
     std::vector<MapPoint*> GetTrackedMapPoints();
     std::vector<cv::KeyPoint> GetTrackedKeyPointsUn();
-    std::vector<MapPoint*> GetAllMapPoints(bool only_good=true);
+    std::vector<KeyFrame*> GetAllKeyFrames(bool only_good=false);
+    std::vector<MapPoint*> GetAllMapPoints(bool only_good=false);
     std::size_t GetLastLoopKFid();
     std::size_t GetCurrentFid();
 

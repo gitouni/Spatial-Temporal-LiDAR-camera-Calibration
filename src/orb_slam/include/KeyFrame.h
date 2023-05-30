@@ -22,8 +22,8 @@
 #define KEYFRAME_H
 
 #include "MapPoint.h"
-#include "Thirdparty/DBoW2/DBoW2/BowVector.h"
-#include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
+#include "../Thirdparty/DBoW2/DBoW2/BowVector.h"
+#include "../Thirdparty/DBoW2/DBoW2/FeatureVector.h"
 #include "ORBVocabulary.h"
 #include "ORBextractor.h"
 #include "Frame.h"
@@ -80,7 +80,8 @@ public:
     bool mbFirstConnection;
 
     float mHalfBaseline;
-    vector<int> mvpMapPointsId, mvpOrderedConnectedKeyFramesId, mspChildrensId, mspLoopEdgesId, mvOrderedWeights;;
+    vector<int> mvpMapPointsId, mvpCorrKeyPointsId, mvpOrderedConnectedKeyFramesId, mspChildrensId, mspLoopEdgesId, mvOrderedWeights;
+    unordered_map<int, int> mmapMpt2KptId;
     int mpParentId;
     cv::Mat Tcw;
 };
@@ -98,13 +99,15 @@ public:
         ar& mBowVec;
         ar& mFeatVec;
     }
-    void saveData(const std::string baseName,const std::unordered_map<KeyFrame*, std::int32_t> &mapKeyFrameId,
-         const std::unordered_map<MapPoint*, std::int32_t> &mapMapPointId);
+    void saveData(const std::string baseName,const std::unordered_map<KeyFrame*, int> &mapKeyFrameId,
+         const std::unordered_map<MapPoint*, int> &mapMapPointId);
     void GlobalConnection(const KeyFrameConstInfo *info, const std::unordered_map<int, KeyFrame*> &mapKeyFrameId);
     // Pose functions
     void SetPose(const cv::Mat &Tcw);
     cv::Mat GetPose();
     cv::Mat GetPoseInverse();
+    cv::Mat GetPoseSafe() const;
+    cv::Mat GetPoseInverseSafe() const;
     cv::Mat GetCameraCenter();
     cv::Mat GetStereoCenter();
     cv::Mat GetRotation();
@@ -122,6 +125,9 @@ public:
     std::vector<KeyFrame* > GetVectorCovisibleKeyFrames();
     std::vector<KeyFrame*> GetBestCovisibilityKeyFrames(const int &N);
     std::vector<KeyFrame*> GetCovisiblesByWeight(const int &w);
+    std::vector<KeyFrame* > GetVectorCovisibleKeyFramesSafe() const;
+    std::vector<KeyFrame*> GetBestCovisibilityKeyFramesSafe(const int &N) const;
+    std::vector<KeyFrame*> GetCovisiblesByWeightSafe(const int &w) const;
     int GetWeight(KeyFrame* pKF);
 
     // Spanning tree functions
@@ -143,6 +149,8 @@ public:
     void ReplaceMapPointMatch(const size_t &idx, MapPoint* pMP);
     std::set<MapPoint*> GetMapPoints();
     std::vector<MapPoint*> GetMapPointMatches();
+    std::vector<MapPoint*> GetMapPointMatchesSafe() const;
+    std::map<int, int> GetMatchedKptIds(const KeyFrame* pKF) const;
     int TrackedMapPoints(const int &minObs);
     MapPoint* GetMapPoint(const size_t &idx);
 
