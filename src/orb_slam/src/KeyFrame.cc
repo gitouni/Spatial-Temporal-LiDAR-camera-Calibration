@@ -65,6 +65,7 @@ KeyFrameConstInfo::KeyFrameConstInfo(cv::FileStorage &fs, KeyFrameDatabase *pKFD
     fs["mbFirstConnection"] >> mbFirstConnection;
     fs["mHalfBaseline"] >> mHalfBaseline;
     fs["mvpMapPointsId"] >> mvpMapPointsId;
+    fs["mvpCorrKeyPointsId"] >> mvpCorrKeyPointsId;
     fs["mvpOrderedConnectedKeyFramesId"] >> mvpOrderedConnectedKeyFramesId;
     fs["mvOrderedWeights"] >> mvOrderedWeights;
     fs["mpParentId"] >> mpParentId;
@@ -72,6 +73,10 @@ KeyFrameConstInfo::KeyFrameConstInfo(cv::FileStorage &fs, KeyFrameDatabase *pKFD
     fs["mspLoopEdgesId"] >> mspLoopEdgesId;
     fs["Pose"] >> Tcw;
     fs.release();
+    assert(mvpMapPointsId.size() == mvpCorrKeyPointsId.size());
+    for(decltype(mvpMapPointsId)::const_iterator mpt_it = mvpMapPointsId.begin(), kpt_it = mvpCorrKeyPointsId.begin();
+     mpt_it != mvpMapPointsId.end(), kpt_it != mvpCorrKeyPointsId.end(); ++mpt_it, ++kpt_it)
+        mmapMpt2KptId.insert(std::make_pair(*(mpt_it), *(kpt_it)));
 }
 
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
@@ -120,6 +125,7 @@ KeyFrame::KeyFrame(boost::archive::binary_iarchive &ira, const KeyFrameConstInfo
                 continue;
             }
             mvpMapPoints.push_back(it->second);
+            mmapMpt2Kpt[it->second] = info->mmapMpt2KptId.at(mapId);
         }
         SetPose(info->Tcw);
         
@@ -160,14 +166,23 @@ void KeyFrame::GlobalConnection(const KeyFrameConstInfo *info, const unordered_m
         mpParent = it->second;
 }
 
-void KeyFrame::saveData(const string baseName, const unordered_map<KeyFrame*, int32_t> &mapKeyFrameId,
-        const unordered_map<MapPoint*, int32_t> &mapMapPointId)
+void KeyFrame::saveData(const string baseName, const unordered_map<KeyFrame*, int> &mapKeyFrameId,
+        const unordered_map<MapPoint*, int> &mapMapPointId)
 {
-    vector<int32_t> mvpMapPointsId, mvpOrderedConnectedKeyFramesId, mspChildrensId, mspLoopEdgesId, vOrderedWeights;
+    vector<int> mvpMapPointsId, mvpCorrKeyPointsId;
+    vector<int> mvpOrderedConnectedKeyFramesId, mspChildrensId, mspLoopEdgesId, vOrderedWeights;
+
     for(MapPoint* mpt:mvpMapPoints){
+        if(!mpt || mpt->isBad())
+            continue;
         auto it = mapMapPointId.find(mpt);
-        if(it!=mapMapPointId.end())
-            mvpMapPointsId.push_back(it->second);
+        if(it==mapMapPointId.end())
+            continue;
+        auto obsKF = it->first->GetObservations();
+        if(obsKF.count(this) == 0)
+            continue;
+        mvpMapPointsId.push_back(it->second);
+        mvpCorrKeyPointsId.push_back(obsKF[this]);
     }
     for(KeyFrame* kf:mvpOrderedConnectedKeyFrames){
         auto it = mapKeyFrameId.find(kf);
@@ -227,6 +242,7 @@ void KeyFrame::saveData(const string baseName, const unordered_map<KeyFrame*, in
     of << "mK" << mK;
     of << "Pose" << GetPose();
     of << "mvpMapPointsId" << mvpMapPointsId;
+    of << "mvpCorrKeyPointsId" << mvpCorrKeyPointsId;
     of << "mvpOrderedConnectedKeyFramesId" << mvpOrderedConnectedKeyFramesId;
     of << "mvOrderedWeights" << vOrderedWeights;
     of << "mbFirstConnection" << mbFirstConnection;
@@ -277,6 +293,16 @@ cv::Mat KeyFrame::GetPose()
 cv::Mat KeyFrame::GetPoseInverse()
 {
     unique_lock<mutex> lock(mMutexPose);
+    return Twc.clone();
+}
+
+cv::Mat KeyFrame::GetPoseSafe() const
+{
+    return Tcw.clone();
+}
+
+cv::Mat KeyFrame::GetPoseInverseSafe() const
+{
     return Twc.clone();
 }
 
@@ -383,6 +409,35 @@ vector<KeyFrame*> KeyFrame::GetCovisiblesByWeight(const int &w)
     }
 }
 
+vector<KeyFrame*> KeyFrame::GetVectorCovisibleKeyFramesSafe() const
+{
+    return mvpOrderedConnectedKeyFrames;
+}
+
+vector<KeyFrame*> KeyFrame::GetBestCovisibilityKeyFramesSafe(const int &N) const
+{
+    if((int)mvpOrderedConnectedKeyFrames.size()<N)
+        return mvpOrderedConnectedKeyFrames;
+    else
+        return vector<KeyFrame*>(mvpOrderedConnectedKeyFrames.begin(),mvpOrderedConnectedKeyFrames.begin()+N);
+
+}
+
+vector<KeyFrame*> KeyFrame::GetCovisiblesByWeightSafe(const int &w) const
+{
+    if(mvpOrderedConnectedKeyFrames.empty())
+        return vector<KeyFrame*>();
+    auto mvOrderedWeightsCopy = mvOrderedWeights;
+    vector<int>::iterator it = upper_bound(mvOrderedWeightsCopy.begin(),mvOrderedWeightsCopy.end(),w,KeyFrame::weightComp);
+    if(it==mvOrderedWeightsCopy.end())
+        return vector<KeyFrame*>();
+    else
+    {
+        int n = it-mvOrderedWeightsCopy.begin();
+        return vector<KeyFrame*>(mvpOrderedConnectedKeyFrames.begin(), mvpOrderedConnectedKeyFrames.begin()+n);
+    }
+}
+
 int KeyFrame::GetWeight(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexConnections);
@@ -464,6 +519,24 @@ vector<MapPoint*> KeyFrame::GetMapPointMatches()
     unique_lock<mutex> lock(mMutexFeatures);
     return mvpMapPoints;
 }
+
+vector<MapPoint*> KeyFrame::GetMapPointMatchesSafe() const
+{
+    return mvpMapPoints;
+}
+
+map<int, int> KeyFrame::GetMatchedKptIds(const KeyFrame* pKF) const
+{
+    map<int, int> matchedKptIds;
+    for(auto pair_it = mmapMpt2Kpt.begin(); pair_it != mmapMpt2Kpt.end(); ++ pair_it){
+        if(pKF->mmapMpt2Kpt.count(pair_it->first) > 0)
+        {
+            matchedKptIds[pair_it->second] = pKF->mmapMpt2Kpt.at(pair_it->first);
+        }
+    }
+    return matchedKptIds;
+}
+
 
 MapPoint* KeyFrame::GetMapPoint(const size_t &idx)
 {

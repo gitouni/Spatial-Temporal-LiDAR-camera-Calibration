@@ -531,6 +531,12 @@ vector<cv::KeyPoint> System::GetTrackedKeyPointsUn()
     return mTrackedKeyPointsUn;
 }
 
+std::vector<KeyFrame*> System::GetAllKeyFrames(bool only_good)
+{
+    unique_lock<mutex> lock(mMutexState);
+    return mpMap->GetAllKeyFrames(only_good);
+}
+
 std::vector<MapPoint*> System::GetAllMapPoints(bool only_good)
 {
     unique_lock<mutex> lock(mMutexState);
@@ -557,7 +563,7 @@ void System::SaveMap(const std::string &filename) const
 
 void System::SaveKeyFrames(const string &dirname) const
 {
-    std::string KeyFrameDir(dirname+"KeyFrames/");
+    std::string KeyFrameDir(dirname);
     makedir(KeyFrameDir.c_str());
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames(true);
     sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
@@ -614,10 +620,10 @@ void System::RestoreSystemFromFile(const string &keyFrameDir, const string &mapF
     mpMap->RestoreMap(fs, KFinMapId);
     vector<MapPoint*> goodMapPoints = mpMap->GetAllMapPoints(true);
     std::cout << "Found " << goodMapPoints.size() << " MapPoints." << std::endl;
-    unordered_map<int, MapPoint*> mapMapPointId;
-    mapMapPointId.reserve(goodMapPoints.size());
+    unordered_map<int, MapPoint*> MapPointQuery;
+    MapPointQuery.reserve(goodMapPoints.size());
     for(MapPoint* mpt : goodMapPoints)
-        mapMapPointId[mpt->mnId] = mpt;
+        MapPointQuery[mpt->mnId] = mpt;
     std::cout << "" << goodMapPoints.size() << " MapPoints Restored." << std::endl;
     vector<string> InfoFile, FeatFile;
     DIR *dirp = nullptr;
@@ -645,7 +651,8 @@ void System::RestoreSystemFromFile(const string &keyFrameDir, const string &mapF
     vpKF.resize(FeatFile.size());
     mapKeyFrameId.reserve(FeatFile.size());
     int cnt = 0;
-    #pragma omp parallel for ordered schedule(dynamic)      // open it for multithread reading, but sometimes it causes failed points
+    std::mutex FileMutex;
+    #pragma omp parallel for schedule(static)     // open it for multithread reading, but sometimes it causes failed points
     for(std::size_t fi = 0; fi < FeatFile.size(); ++ fi)
     {
         string featFilename = FeatFile[fi], infoFilename = InfoFile[fi];
@@ -653,22 +660,22 @@ void System::RestoreSystemFromFile(const string &keyFrameDir, const string &mapF
         ifstream ifs(featFilename, ios::binary);
         boost::archive::binary_iarchive iar(ifs);
         KeyFrameConstInfo* constInfo(new KeyFrameConstInfo(cvfs, mpKeyFrameDatabase, mpVocabulary));
-        KeyFrame* newKF(new KeyFrame(std::ref(iar), constInfo, mpMap, goodMapPoints, mapMapPointId));
-    #pragma omp ordered  // single thread
-    {
+        KeyFrame* newKF(new KeyFrame(std::ref(iar), constInfo, mpMap, goodMapPoints, MapPointQuery));
         vConstInfo[fi] = constInfo;
         vpKF[fi] = newKF;
-        if(FeatFile.size() > 100)  // May wait some time. A simple Process Indicator is added.
         {
-            ++ cnt;
-            if((cnt) % (FeatFile.size() / 10) == 0)
+            std::unique_lock<std::mutex> lock(FileMutex);
+            if(FeatFile.size() > 100)  // May wait some time. A simple Process Indicator is added.
             {
-                char msg[30];
-                sprintf(msg, "%0.2lf %% Saved.", 100.0*(cnt+1)/FeatFile.size());
-                std::cout << msg << std::endl;
+                ++ cnt;
+                if((cnt) % (FeatFile.size() / 10) == 0)
+                {
+                    char msg[30];
+                    sprintf(msg, "%0.2lf %% loaded.", 100.0*(cnt+1)/FeatFile.size());
+                    std::cout << msg << std::endl;
+                }
             }
         }
-    }
     }
     std::cout << vpKF.size() << " KeyFrames Restored." << std::endl;
     // May be unnecessary to sort
@@ -680,7 +687,7 @@ void System::RestoreSystemFromFile(const string &keyFrameDir, const string &mapF
         vpKF[kFi]->GlobalConnection(vConstInfo[kFi], mapKeyFrameId);
     std::cout << "KeyFrame-to-KeyFrame Connections Restored." << std::endl;
     cv::FileStorage MapFs(mapFilename, cv::FileStorage::READ);
-    mpMap->RestoreMapPointsConnection(MapFs, mapKeyFrameId, mapMapPointId);
+    mpMap->RestoreMapPointsConnection(MapFs, mapKeyFrameId, MapPointQuery);
     std::cout << "MapPoint-to-KeyFrame Connections Restored." << std::endl;
     for(KeyFrame* pKF: vpKF)
         mpMap->AddKeyFrame(pKF);

@@ -88,8 +88,11 @@ vector<KeyFrame*> Map::GetAllKeyFrames(bool onlygood)
         vector<KeyFrame*> goodKeyFrames;
         goodKeyFrames.reserve(mspKeyFrames.size());
         for(auto it=mspKeyFrames.begin(); it != mspKeyFrames.end(); ++it){
-            if(!(*it)->isBad())
-                goodKeyFrames.push_back(*it);
+            if((*it) == NULL)
+                continue;
+            if((*it)->isBad())
+                continue;
+            goodKeyFrames.push_back(*it);
         }
         return goodKeyFrames;
     }
@@ -104,8 +107,11 @@ vector<MapPoint*> Map::GetAllMapPoints(bool onlygood)
         vector<MapPoint*> goodMapPoints;
         goodMapPoints.reserve(mspMapPoints.size());
         for(auto it=mspMapPoints.begin(); it != mspMapPoints.end(); ++it){
-            if(!(*it)->isBad())
-                goodMapPoints.push_back(*it);
+            if((*it) == NULL)
+                continue;
+            if((*it)->isBad())
+                continue;
+            goodMapPoints.push_back(*it);
         }
         return goodMapPoints;
     }
@@ -163,37 +169,39 @@ void Map::RestoreMap(cv::FileStorage &fs, vector<int> &vkFId)
     fs.release();
 }
 
-void Map::RestoreMapPointsConnection(cv::FileStorage &fs, unordered_map<int, KeyFrame*> &mapKFId, unordered_map<int, MapPoint*> &mapMptId)
+void Map::RestoreMapPointsConnection(cv::FileStorage &fs, unordered_map<int, KeyFrame*> &KeyFrameQuery, unordered_map<int, MapPoint*> &MapPointQuery)
 {
     cv::FileNode mptsfn = fs["mspMapPoints"];
-    for(cv::FileNodeIterator NodeIt = mptsfn.begin(); NodeIt != mptsfn.end(); ++NodeIt)  // MapPoint FileNode
+    for(cv::FileNodeIterator NodeIt = mptsfn.begin(); NodeIt != mptsfn.end(); ++ NodeIt)  // MapPoint FileNode
     {
         vector<int> mobsMapKFId, mMapKFInId;
         int MptId;
-        (*NodeIt)["mobsMapKFId"] >> mobsMapKFId;
-        (*NodeIt)["mMapKFInId"] >> mMapKFInId;
-        (*NodeIt)["mnId"] >> MptId;
+        (*NodeIt)["mobsMapKFId"] >> mobsMapKFId; // id of KeyFrames by which this MapPoint is observed
+        (*NodeIt)["mMapKFInId"] >> mMapKFInId; // id of Corresponding KeyPoints in above KeyFrames
+        (*NodeIt)["mnId"] >> MptId; // id of this obeserved MapPoints
         assert(mobsMapKFId.size() == mMapKFInId.size());
-        auto MptIt = mapMptId.find(MptId); // verify the MapPoint
-        if(MptIt == mapMptId.end()){
+        auto MptIt = MapPointQuery.find(MptId); // verify the MapPoint
+        if(MptIt == MapPointQuery.end()){
             std::cout << "[Warning] " <<__FILE__ << " Line " << __LINE__ <<": \033[33;1mLost MapPoint in Hash Table\033[0m" << std::endl;
                 continue;
         }
-        MapPoint* pMpt = mapMptId[MptId]; // retrive the valid MapPoint
+        MapPoint* pMpt = MapPointQuery[MptId]; // retrive the valid MapPoint
         for(int i = 0; i < (int) mobsMapKFId.size(); ++i){
-            int KFId = mobsMapKFId[i], KFInId = mMapKFInId[i];
-            auto KFIt = mapKFId.find(KFId);   // verify the KeyFrame
-            if(KFIt == mapKFId.end()){
+            const int KFId = mobsMapKFId[i], KFInId = mMapKFInId[i];
+            auto KFIt = KeyFrameQuery.find(KFId);   
+            if(KFIt == KeyFrameQuery.end()) // ensure the KeyFrame Id is in mobsMapKFId
+            {
                 std::cout << "[Warning] " <<__FILE__ << " Line " << __LINE__ <<": \033[33;1mUnconnected MapPoint for KeyFrame\033[0m" << std::endl;
                 continue;
             }
-            if(KFInId > (int)(KFIt->second->mvKeysUn.size()-1) || KFInId < 0){
+            if(KFInId > (int)(KFIt->second->mvKeysUn.size()-1) || KFInId < 0) // ensure the Keypoint Id is valid
+            {
                 std::cout << "[Warning] " <<__FILE__ << " Line " << __LINE__ <<": \033[33;1mIndex of Connected MapPoint Overflow the size of Keypoints\033[0m" << std::endl;
                 continue;
             }
-            KFIt->second->mmapMpt2Kpt[pMpt] = KFInId;   
+            // KFIt->second->mmapMpt2Kpt[pMpt] = KFInId;   // mmapMpt2Kpt has been restored by KeyFrame()
             if(!pMpt->IsInKeyFrame(KFIt->second))
-                pMpt->AddObservationStatic(KFIt->second, (size_t)KFInId);    // why Segment Fault??
+                pMpt->AddObservationStatic(KFIt->second, (std::size_t)KFInId);
         }
     }
     fs.release();
@@ -206,11 +214,11 @@ void Map::RestoreMapPointsConnection(cv::FileStorage &fs, unordered_map<int, Key
 cv::FileStorage& operator<<(cv::FileStorage &fs, ORB_SLAM2::Map &map){
     fs << "mspMapPoints" << "{";
     vector<ORB_SLAM2::MapPoint*> vmpts = map.GetAllMapPoints();
-    for(int i = 0; i < (int)vmpts.size();++i){
+    for(ORB_SLAM2::MapPoint* mpt:vmpts){
         char index[15];
-        sprintf(index, "%06d", i);
+        sprintf(index, "%ld", mpt->mnId);
         fs << "MapPoint_"+std::string(index) << "{";
-        fs << *(vmpts[i]) << "}";
+        fs << *(mpt) << "}";
     }
     fs << "}";
     vector<ORB_SLAM2::KeyFrame*> vKFs = map.GetAllKeyFrames();
