@@ -3,12 +3,10 @@ import numpy as np
 import argparse
 import os
 import cv2
-import open3d as o3d
-import copy
 # import matplotlib
 # matplotlib.use('agg')
 from matplotlib import pyplot as plt
-from tools import *
+from cv_tools import *
 from scipy.spatial.ckdtree import cKDTree
 from fps_v1 import FPS
 
@@ -92,6 +90,7 @@ if __name__ == "__main__":
     extran = calibStruct.T_cam0_velo  # [4,4]
     print("GT TCL:\n{}".format(extran))
     print("GT TCL Rvec:{}\ntvec:{}".format(*toVec(extran)))
+    
     aug_extran = augT @ extran
     intran = calibStruct.K_cam0
     src_pcd_arr = dataStruct.get_velo(args.index_i)[:,:3]  # [N, 3]
