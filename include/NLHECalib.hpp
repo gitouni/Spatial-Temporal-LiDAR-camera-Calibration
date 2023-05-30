@@ -14,6 +14,7 @@
 #include "g2o/types/sim3/types_seven_dof_expmap.h"
 #include "g2o/core/auto_differentiation.h"
 #include <algorithm>
+#include <g2o_tools.h>
 
 namespace Eigen{
     Eigen::Matrix3d skew(Eigen::Vector3d vec){
@@ -21,43 +22,17 @@ namespace Eigen{
     }
 }
 
-class VertexPose : public g2o::BaseVertex<7, g2o::Vector7> {
-public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    virtual void setToOriginImpl() override {
-        _estimate = (g2o::Vector7() << 0, 0, 0, 0, 0, 0, 1.0).finished();
-    }
 
-    /// left multiplication on SE3
-    virtual void oplusImpl(const double *update) override {
-        g2o::Vector7::ConstMapType updateVec(update);
-        _estimate += updateVec;
-    }
-
-    virtual bool read(std::istream &in) override {return false;}
-
-    virtual bool write(std::ostream &out) const override {return false;}
-
-    std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> toPose() const{
-        Eigen::Vector3d rotvec(_estimate.head<3>());
-        Eigen::Vector3d translation(_estimate.segment<3>(3, 3));
-        double scale = _estimate(6);
-        double rotvec_norm = rotvec.norm();
-        Eigen::AngleAxisd ax(rotvec_norm, rotvec/rotvec_norm);
-        return {ax.toRotationMatrix(), translation, scale};
-    }
-};
-
-class EdgeHE : public g2o::BaseUnaryEdge<3, g2o::Vector3, VertexPose> {
+class EdgeHE : public g2o::BaseUnaryEdge<3, g2o::Vector3, VertexSim3> {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     EdgeHE(const Eigen::Isometry3d &Ta, const Eigen::Isometry3d &Tb, const double weight): _Ta(Ta), _Tb(Tb), _weight(weight){}
     virtual void computeError() override {
-        const VertexPose *v = static_cast<VertexPose *> (_vertices[0]);
+        const VertexSim3 *v = static_cast<VertexSim3 *> (_vertices[0]);
         Eigen::Matrix3d Rab;
         Eigen::Vector3d tab;
         double s;
-        std::tie(Rab, tab, s) = v->toPose();
+        std::tie(Rab, tab, s) = Sim3Exp<double>(v->estimate().data());
         Eigen::Vector4d tsab;  // [tab, s]
         tsab.block<3, 1>(0, 0) = tab;
         tsab(3) = s;
@@ -73,11 +48,11 @@ public:
     }
 
     virtual void linearizeOplus() override {
-        const VertexPose *v = static_cast<VertexPose *> (_vertices[0]);
+        const VertexSim3 *v = static_cast<VertexSim3 *> (_vertices[0]);
         Eigen::Matrix3d Rab;
         Eigen::Vector3d tab;
         double s;
-        std::tie(Rab, tab, s) = v->toPose();
+        std::tie(Rab, tab, s) = Sim3Exp<double>(v->estimate().data());
         Eigen::Vector4d tsab;  // [tab, s]
         tsab.block<3, 1>(0, 0) = tab;
         tsab(3) = s;
@@ -93,7 +68,7 @@ public:
         _weight = weight;
     }
 
-    double returnSquaredWeight(){
+    double returnSquaredWeight() const{
         return _weight * _weight;
     }
 
@@ -106,19 +81,19 @@ private:
 };
 
 
-class EdgeRegulation : public g2o::BaseUnaryEdge<3, g2o::Vector3, VertexPose> {
+class EdgeRegulation : public g2o::BaseUnaryEdge<3, g2o::Vector3, VertexSim3> {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     EdgeRegulation(){}
     // virtual void computeError() override {
-    //     const VertexPose *v = static_cast<VertexPose *> (_vertices[0]);
+    //     const VertexSim3 *v = static_cast<VertexSim3 *> (_vertices[0]);
     //     g2o::Sim3 Tab(v->estimate());
     //     Eigen::Vector3d translation = Tab.translation();
     //     _error << translation;
     // }
 
     // virtual void linearizeOplus() override {
-    //     const VertexPose *v = static_cast<VertexPose *> (_vertices[0]);
+    //     const VertexSim3 *v = static_cast<VertexSim3 *> (_vertices[0]);
     //     Eigen::Matrix<double, 3, 7> Jacobian;
     //     Jacobian.setZero();
     //     Jacobian.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
@@ -149,7 +124,7 @@ std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibRobustKernelg2o(cons
     g2o::SparseOptimizer optimizer;     // 图模型
     optimizer.setAlgorithm(solver);   // 设置求解器
     optimizer.setVerbose(verbose);       // 打开调试输出
-    VertexPose *v(new VertexPose);
+    VertexSim3 *v(new VertexSim3);
     Eigen::AngleAxisd ax(initialRotation);
     Eigen::Vector3d rotvec = ax.angle() * ax.axis();
     g2o::Vector7 initialValue;
@@ -182,7 +157,7 @@ std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibRobustKernelg2o(cons
     Eigen::Matrix3d RCL;
     Eigen::Vector3d tCL;
     double scale;
-    std::tie(RCL, tCL, scale) = v->toPose();
+    std::tie(RCL, tCL, scale) = Sim3Exp<double>(v->estimate().data());
     if(verbose){
         std::vector<double> chi2List;
         chi2List.reserve(optimizer.edges().size());
@@ -210,9 +185,9 @@ std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibRobustKernelg2o(cons
     return {RCL, tCL, scale};
 }
 
-std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibLPg2o(const std::vector<Eigen::Isometry3d> &vTa, const std::vector<Eigen::Isometry3d> &vTb,
-    const Eigen::Matrix3d &initialRotation, const Eigen::Vector3d &initialTranslation, const double &initialScale, const unsigned short in_max_iter = 5,
-    const double mu0 = 64, const double divid_factor = 1.4, const double min_mu = 1e-4, const unsigned short ex_max_iter = 20,
+std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibLineProcessg2o(const std::vector<Eigen::Isometry3d> &vTa, const std::vector<Eigen::Isometry3d> &vTb,
+    const Eigen::Matrix3d &initialRotation, const Eigen::Vector3d &initialTranslation, const double &initialScale, const int in_max_iter = 5,
+    const double mu0 = 64, const double divid_factor = 1.4, const double min_mu = 1e-1, const int ex_max_iter = 20,
     const bool regulation=true, const double regulation_ratio= 0.005, const bool verbose=true){
 
     typedef g2o::BlockSolver<g2o::BlockSolverTraits<7, 3>> BlockSolverType; 
@@ -222,7 +197,7 @@ std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibLPg2o(const std::vec
     g2o::SparseOptimizer optimizer;     // 图模型
     optimizer.setAlgorithm(solver);   // 设置求解器
     optimizer.setVerbose(verbose);       // 打开调试输出
-    VertexPose *v(new VertexPose);
+    VertexSim3 *v(new VertexSim3);
     Eigen::AngleAxisd ax(initialRotation);
     Eigen::Vector3d rotvec = ax.angle() * ax.axis();
     g2o::Vector7 initialValue;
@@ -232,6 +207,7 @@ std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibLPg2o(const std::vec
     v->setEstimate(initialValue);
     v->setId(0);
     optimizer.addVertex(v);
+    EdgeRegulation* regedge = new EdgeRegulation();
     for(std::size_t i = 0; i < vTa.size(); ++i){
         EdgeHE* edge(new EdgeHE(vTa[i], vTb[i], 1.0));
         edge->setId(i);
@@ -240,7 +216,6 @@ std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibLPg2o(const std::vec
         optimizer.addEdge(edge);
     }
     if(regulation){
-        EdgeRegulation* regedge = new EdgeRegulation();
         regedge->setId(vTa.size());
         regedge->setVertex(0, v);
         double ratio = vTa.size() * regulation_ratio;
@@ -251,23 +226,29 @@ std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibLPg2o(const std::vec
     optimizer.optimize(10);
     double mu = mu0;
     for(unsigned short exiter = 0; exiter < ex_max_iter; ++exiter){
+        double total_weight = 0;
         for(auto it = optimizer.edges().begin(); it != optimizer.edges().end(); ++it){
             if((*it)->id() < (int) vTa.size()){
                 EdgeHE* edge = dynamic_cast<EdgeHE*> (*it);
                 double e2 = (double)(edge->chi2());
                 double w = mu/(mu+e2);
-                edge->setInformation(w*w*Eigen::Matrix3d::Identity());
-            }
+                double w2 = w*w;
+                total_weight += w2;
+                edge->setInformation(w2*Eigen::Matrix3d::Identity());
+            }   
         }
+        if(regulation)
+            regedge->setInformation(total_weight*regulation_ratio*Eigen::Matrix3d::Identity());
         optimizer.initializeOptimization();
         optimizer.optimize(10);
-        if(mu >= min_mu)
-            mu /= divid_factor;
+        mu /= divid_factor;
+        if(mu < min_mu)
+            break;
     }
     Eigen::Matrix3d RCL;
     Eigen::Vector3d tCL;
     double scale;
-    std::tie(RCL, tCL, scale) = v->toPose();
+    std::tie(RCL, tCL, scale) = Sim3Exp<double>(v->estimate().data());
     if(verbose){
         std::vector<double> chi2List;
         chi2List.reserve(optimizer.edges().size());

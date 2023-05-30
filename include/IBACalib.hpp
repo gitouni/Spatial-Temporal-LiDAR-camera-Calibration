@@ -1,4 +1,3 @@
-#include <g2o/core/base_vertex.h>
 #include <g2o/core/base_unary_edge.h>
 #include <g2o/core/block_solver.h>
 #include <g2o/core/solver.h>
@@ -8,31 +7,29 @@
 #include <g2o/core/robust_kernel.h>
 #include <g2o/types/sba/types_six_dof_expmap.h>
 #include "g2o/core/auto_differentiation.h"
+#include "g2o_tools.h"
 
-class VertexSE3 : public g2o::BaseVertex<6, g2o::Vector6> {
-public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    virtual void setToOriginImpl() override {
-        _estimate << 0, 0, 0, 0, 0, 0;
-    }
 
-    /// left multiplication on SE3
-    virtual void oplusImpl(const double *update) override {
-        g2o::Vector6::ConstMapType updateVec(update);
-        _estimate += updateVec;
-    }
-
-    virtual bool read(std::istream &in) override {return false;}
-
-    virtual bool write(std::ostream &out) const override {return false;}
-
-};
-
-class IBAEdge: public g2o::BaseUnaryEdge<2, g2o::Vector2, g2o::VertexSE3Expmap>
+class IBAPlaneEdge: public g2o::BaseUnaryEdge<2, g2o::Vector2, g2o::VertexSE3Expmap>
 {
 public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    IBAEdge(const double &_fx, const double &_fy, const double &_cx, const double &_cy,
+    /**
+     * @brief Construct a new IBAPlaneEdge Object (Analytical Derivate)
+     * 
+     * @param _fx intrinsic focal length x
+     * @param _fy intrinsic focal length y
+     * @param _cx intrinsic principal point x
+     * @param _cy intrinsic principal point y
+     * @param _u0 first correspondence point x
+     * @param _v0 first correspondence point y
+     * @param _u1 second correspondence point x
+     * @param _v1 second correspondence point y
+     * @param _p0 corresponding 3D point
+     * @param _n0 normal of _p0
+     * @param _R camera relative Rotation (R_21)
+     * @param _t camera relative Translation (t_21)
+     */
+    IBAPlaneEdge(const double &_fx, const double &_fy, const double &_cx, const double &_cy,
      const double &_u0, const double &_v0, const double &_u1, const double &_v1,
      const Eigen::Vector3d &_p0, const Eigen::Vector3d &_n0, const Eigen::Matrix3d &_R, const Eigen::Vector3d &_t):
      fx(_fx), fy(_fy), cx(_cx), cy(_cy),
@@ -105,14 +102,30 @@ private:
     const Eigen::Vector3d n0;
     const Eigen::Matrix3d R;
     const Eigen::Vector3d t;
-
-};
-
-class IBAEdgeAD: public g2o::BaseUnaryEdge<2, g2o::Vector2, VertexSE3>
-{
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    IBAEdgeAD(const double &_fx, const double &_fy, const double &_cx, const double &_cy,
+};
+
+class IBAPlaneEdgeAD: public g2o::BaseUnaryEdge<2, g2o::Vector2, VertexSim3>
+{
+public:
+    /**
+     * @brief Construct a new IBAPlaneEdge Object (Auto Derivate)
+     * 
+     * @param _fx intrinsic focal length x
+     * @param _fy intrinsic focal length y
+     * @param _cx intrinsic principal point x
+     * @param _cy intrinsic principal point y
+     * @param _u0 first correspondence point x
+     * @param _v0 first correspondence point y
+     * @param _u1 second correspondence point x
+     * @param _v1 second correspondence point y
+     * @param _p0 corresponding 3D point
+     * @param _n0 normal of _p0
+     * @param _R camera relative Rotation (2nd node to 1st node)
+     * @param _t camera relative Translation (2nd node to 1st node)
+     */
+    IBAPlaneEdgeAD(const double &_fx, const double &_fy, const double &_cx, const double &_cy,
      const double &_u0, const double &_v0, const double &_u1, const double &_v1,
      const Eigen::Vector3d &_p0, const Eigen::Vector3d &_n0, const Eigen::Matrix3d &_R, const Eigen::Vector3d &_t):
      fx(_fx), fy(_fy), cx(_cx), cy(_cy),
@@ -121,65 +134,20 @@ public:
     
 
     template <typename T>
-    static g2o::MatrixN<3, T> skew(const g2o::VectorN<3, T> &v) {
-        g2o::MatrixN<3, T> m;
-        m.setZero();
-        m(0, 1) = -v(2);
-        m(0, 2) = v(1);
-        m(1, 2) = -v(0);
-        m(1, 0) = v(2);
-        m(2, 0) = -v(1);
-        m(2, 1) = v(0);
-        return m;
-    }
-
-    template <typename T>
-    static std::tuple<g2o::MatrixN<3, T>, g2o::VectorN<3, T> > SE3Exp(const T* update)
-    {
-        g2o::VectorN<3, T> omega;
-        g2o::VectorN<3, T> upsilon;
-        for (int i = 0; i < 3; i++) omega[i] = update[i];
-        for (int i = 0; i < 3; i++) upsilon[i] = update[i + 3];
-
-        T theta = omega.norm();
-        g2o::MatrixN<3, T> Omega = skew<T>(omega);
-
-        g2o::MatrixN<3, T> R;
-        g2o::MatrixN<3, T> V;
-        g2o::MatrixN<3, T> I = g2o::MatrixN<3, T>::Identity();
-        if (theta < T(1e-4))  // Use Taylor Series Approximation
-        {
-            g2o::MatrixN<3, T> Omega2 = Omega * Omega;
-            R = (I + Omega + T(0.5) * Omega2);
-            V = (I + T(0.5) * Omega + T(1.) / T(6.) * Omega2);
-        }
-        else 
-        {
-            g2o::MatrixN<3, T> Omega2 = Omega * Omega;
-            T costh = cos(theta); // cos function Not Implemented By cmath !!! , see Jet.h
-            T sinth = sin(theta); // sin function Not Implemented By cmath !!! , see Jet.h
-            T invth2 = pow(theta, -2);  // pow function Not Implemented By cmath !!! , see Jet.h
-            T invth3 = pow(theta, -3);  // pow function Not Implemented By cmath !!! , see Jet.h
-            R = (I + sinth / theta * Omega +
-                (T(1.) - costh) * invth2 * Omega2);
-            V = (I +
-                (T(1.) - costh) * invth2 * Omega +
-                (theta - sinth) * invth3 * Omega2);
-        }
-        return {R, V * upsilon};
-    }
-
-    template <typename T>
     bool operator()(const T* data, T* error) const{
         g2o::MatrixN<3, T> _Rcl;
         g2o::VectorN<3, T> _tcl;
-        std::tie(_Rcl, _tcl) = SE3Exp(data); // Template SE3 Map
+        T _s;
+        std::tie(_Rcl, _tcl, _s) = Sim3Exp<T>(data); // Template Sim3 Map
         T _fx(fx), _fy(fy), _cx(cx), _cy(cy), _u0(u0), _v0(v0), _u1(u1), _v1(v1);
-        g2o::VectorN<3, T> _p0c = _Rcl * p0.cast<T>() + _tcl;
-        g2o::VectorN<3, T> _n0c = _Rcl * n0.cast<T>();
+        g2o::VectorN<3, T> _p0 = p0.cast<T>();
+        g2o::VectorN<3, T> _n0 = n0.cast<T>();
         g2o::MatrixN<3, T> _R = R.cast<T>();
-        g2o::VectorN<3 ,T> _t = t.cast<T>();
-        
+        g2o::VectorN<3 ,T> _t = t.cast<T>() * _s;
+         // Manifold Transform
+        g2o::VectorN<3, T> _p0c = _Rcl * _p0 + _tcl;
+        g2o::VectorN<3, T> _n0c = _Rcl * _n0;
+      
         T _Cxz = (_u0 - _cx)/_fx;
         T _Cyz = (_v0 - _cy)/_fy;
         T _Z0 = _n0c.dot(_p0c) / (_Cxz*_n0c(0) + _Cyz*_n0c(1) + _n0c(2));
@@ -203,6 +171,67 @@ private:
     const Eigen::Vector3d n0;
     const Eigen::Matrix3d R;
     const Eigen::Vector3d t;
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    G2O_MAKE_AUTO_AD_FUNCTIONS  // Define ComputeError and linearizeOplus from operator()
+};
 
+
+class IBATestEdge: public g2o::BaseUnaryEdge<2, g2o::Vector2, VertexSim3>
+{
+public:
+    /**
+     * @brief Construct a new IBAPlaneEdge Object (Auto Derivate)
+     * 
+     * @param _fx intrinsic focal length x
+     * @param _fy intrinsic focal length y
+     * @param _cx intrinsic principal point x
+     * @param _cy intrinsic principal point y
+     * @param _u0 first correspondence point x
+     * @param _v0 first correspondence point y
+     * @param _u1 second correspondence point x
+     * @param _v1 second correspondence point y
+     * @param _p0 corresponding 3D point
+     * @param _R camera relative Rotation (2nd node to 1st node)
+     * @param _t camera relative Translation (2nd node to 1st node)
+     */
+    IBATestEdge(const double &_fx, const double &_fy, const double &_cx, const double &_cy,
+     const double &_u0, const double &_v0, const double &_u1, const double &_v1,
+     const Eigen::Vector3d &_p0, const Eigen::Matrix3d &_R, const Eigen::Vector3d &_t):
+     fx(_fx), fy(_fy), cx(_cx), cy(_cy),
+     u0(_u0), v0(_v0), u1(_u1), v1(_v1),
+     p0(_p0), R(_R), t(_t){};
+    
+
+    template <typename T>
+    bool operator()(const T* data, T* error) const{
+        g2o::MatrixN<3, T> _Rcl;
+        g2o::VectorN<3, T> _tcl;
+        T _s;
+        std::tie(_Rcl, _tcl, _s) = Sim3Exp<T>(data); // Template Sim3 Map
+        T _fx(fx), _fy(fy), _cx(cx), _cy(cy), _u0(u0), _v0(v0), _u1(u1), _v1(v1);
+        g2o::VectorN<3, T> _p0 = p0.cast<T>();
+        g2o::MatrixN<3, T> _R = R.cast<T>();
+        g2o::VectorN<3 ,T> _t = t.cast<T>() * _s;
+        g2o::VectorN<3, T> _p0c = _Rcl * _p0 + _tcl;
+        g2o::VectorN<3, T> _p1c = _R * _p0c + _t;
+        // Project Observation to Image
+        T _u1_obs = _fx*_p1c(0)/_p1c(2) + _cx;
+        T _v1_obs = _fy*_p1c(1)/_p1c(2) + _cy;
+        error[0] = _u1_obs - _u1;
+        error[1] = _v1_obs - _v1;
+        return true;
+    }
+    
+    virtual bool read(std::istream &in) override {return false;}
+    virtual bool write(std::ostream &out) const override {return false;}
+    
+private:
+    const double fx, fy, cx, cy, u0, v0, u1, v1;
+    const Eigen::Vector3d p0;
+    const Eigen::Matrix3d R;
+    const Eigen::Vector3d t;
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     G2O_MAKE_AUTO_AD_FUNCTIONS  // Define ComputeError and linearizeOplus from operator()
 };

@@ -47,6 +47,14 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<PointType> &poin
     }
 }
 
+/**
+ * @brief Read Point Cloud to a vector of Eigen::Vector3d
+ * 
+ * @param filename 
+ * @param points vector of xyz points
+ * @return true 
+ * @return false 
+ */
 bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &points)
 {
     std::string suffix = filename.substr(filename.find_last_of('.') + 1);
@@ -91,7 +99,14 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &po
     }
 }
 
-
+/**
+ * @brief Read Point Cloud to a vector of Eigen::Vector4d
+ * 
+ * @param filename 
+ * @param points vector of xyzi points
+ * @return true 
+ * @return false 
+ */
 bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &points)
 {
     std::string suffix = filename.substr(filename.find_last_of('.') + 1);
@@ -135,6 +150,7 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &po
         return false;
     }
 }
+
 
 bool readImage(const std::string &strImageFilename, cv::Mat &img, int flag=cv::IMREAD_UNCHANGED){
     img = cv::imread(strImageFilename, flag);
