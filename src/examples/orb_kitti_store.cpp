@@ -31,7 +31,8 @@ void writeData(std::string &outfile, std::vector<Eigen::Isometry3d> Tlist){
 }
 
 void visual_odometry(ORB_SLAM2::System* SLAM, std::vector<Eigen::Isometry3d> &Twc_list,
-    std::vector<std::size_t> &vKFFrameId, std::vector<std::string> &vstrImageFilename, std::vector<double> &vtimestamp, std::string &KeyFrameDir)
+    std::vector<std::size_t> &vKFFrameId, std::vector<std::string> &vstrImageFilename, std::vector<double> &vtimestamp,
+     const std::string &KeyFrameDir, const std::string &MapFile)
     {
     for(std::size_t i=0; i<vstrImageFilename.size(); ++i){
         try{
@@ -68,22 +69,20 @@ void visual_odometry(ORB_SLAM2::System* SLAM, std::vector<Eigen::Isometry3d> &Tw
         Twc_list.push_back(Twc);
     }
     std::cout << "\033[33;1mVisual Odometry Finished!\033[0m" << std::endl;
-    checkpath(KeyFrameDir);
     if(file_exist(KeyFrameDir)){
-        std::cout << "Directory for saving existed. Try to Delete it." << std::endl;
+        std::cout << "Directory " << KeyFrameDir  << " for saving existed. Try to Delete it." << std::endl;
         remove_directory(KeyFrameDir.c_str());
         std::cout << "Existing Directory deleted successsfully." << std::endl;
     }
     makedir(KeyFrameDir.c_str());
     SLAM->SaveKeyFrames(KeyFrameDir);
-    SLAM->SaveMap(KeyFrameDir+"Map.xml");
+    SLAM->SaveMap(MapFile);
 
 }
 
 int main(int argc, char** argv){
-    if(argc < 6){
-        std::cout << "\033[31;1m Got " << argc-1 << " Parameters, expect 3.\033[0m" << std::endl;
-        throw std::invalid_argument("Expected args: kitti_seq_dir orb_setting_file orb_vocabulary_file TwcFile KeyFrameDir");
+    if(argc < 7){
+        std::cout << "\033[31;1m Expected args: kitti_seq_dir orb_setting_file orb_vocabulary_file TwcFile KeyFrameDir MapFile.\033[0m" << std::endl;
         return -1;
     }
     
@@ -92,6 +91,7 @@ int main(int argc, char** argv){
     std::string orb_voc = argv[3];
     std::string TwcFile = argv[4]; // output
     std::string keyframe_dir = argv[5]; // output
+    std::string mapfile = argv[6];
     checkpath(seq_dir);
     checkpath(keyframe_dir);
     makedir(keyframe_dir.c_str());
@@ -115,7 +115,7 @@ int main(int argc, char** argv){
     std::vector<Eigen::Isometry3d> vTwc;
     std::vector<std::size_t> vKFFrameId;
     vTwc.reserve(vImageFiles.size());
-    visual_odometry(orbSLAM, std::ref(vTwc), std::ref(vKFFrameId), std::ref(vImageFiles), std::ref(vTimeStamps), std::ref(keyframe_dir));
+    visual_odometry(orbSLAM, std::ref(vTwc), std::ref(vKFFrameId), std::ref(vImageFiles), std::ref(vTimeStamps), std::ref(keyframe_dir), mapfile);
     std::cout << "Total visual Frames: " << vTwc.size() << ", Key Frames: " << vKFFrameId.size() << std::endl;
     writeData(TwcFile, vTwc);
 
