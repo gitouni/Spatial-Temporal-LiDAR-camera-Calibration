@@ -40,7 +40,7 @@ def options():
     arg_parser.add_argument("--tsl_perturb",type=float,nargs=3,default=[0.1,-0.15,0.1])
     arg_parser.add_argument("--rot_perturb",type=float,nargs=3,default=[0,0,0])
     arg_parser.add_argument("--fps_sample",type=int,default=-1)
-    arg_parser.add_argument("--pixel_corr_dist",type=float,default=3)
+    arg_parser.add_argument("--pixel_corr_dist",type=float,default=1)
     arg_parser.add_argument("--view",type=str2bool,default=True)
     args = parser.parse_args()
     args.seq_id = "%02d"%args.seq
@@ -62,7 +62,7 @@ def draw3corrpoints(img1,img2,pts11,pts12,pts2):
     for pt11,pt12,pt2 in zip(pts11,pts12,pts2):
         color = tuple(np.random.randint(0,255,3).tolist())
         img1 = cv2.circle(img1,tuple(pt11),5,color,1)
-        img1 = cv2.circle(img1,tuple(pt12),5,color,1)
+        img1 = cv2.circle(img1,tuple(pt12),1,color,-1)
         img2 = cv2.circle(img2,tuple(pt2),5,color,1)
     return img1,img2
 
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     tgt_img = np.array(dataStruct.get_cam0(args.index_j))  # [H, W, 3]
     src_pose = dataStruct.poses[args.index_i]
     tgt_pose = dataStruct.poses[args.index_j]
-    camera_motion:np.ndarray = tgt_pose@ inv_pose(src_pose)
+    camera_motion:np.ndarray = tgt_pose @ inv_pose(src_pose)
     orb = cv2.ORB_create(nfeatures=1000)
     src_kp, src_desc = compute_orb_desc(src_img)
     tgt_kp, tgt_desc = compute_orb_desc(tgt_img)
@@ -134,8 +134,8 @@ if __name__ == "__main__":
         _, fps_idx = fps.fit(True)
     else:
         fps_idx = np.arange(tgt_matched_pts.shape[0])
-    draw_src_img, draw_tgt_img = drawcorrpoints(src_img, tgt_img, src_matched_pts[fps_idx], tgt_matched_pts[fps_idx])
-    # draw_tgt_img, draw_src_img = draw3corrpoints(tgt_img, src_img, tgt_matched_pts[fps_idx], src2tgt_proj_pcd[fps_idx], src_matched_pts[fps_idx])
+    # draw_src_img, draw_tgt_img = drawcorrpoints(src_img, tgt_img, src_matched_pts[fps_idx], tgt_matched_pts[fps_idx])
+    draw_tgt_img, draw_src_img = draw3corrpoints(tgt_img, src_img, tgt_matched_pts[fps_idx], src2tgt_proj_pcd[fps_idx], src_matched_pts[fps_idx])
     plt.subplot(2,1,1)
     plt.imshow(draw_src_img)
     plt.subplot(2,1,2)
