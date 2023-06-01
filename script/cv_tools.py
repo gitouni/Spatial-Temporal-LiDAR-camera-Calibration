@@ -77,6 +77,11 @@ def toMat(rvec:np.ndarray, tvec:np.ndarray):
     mat[:3,3] = V @ tvec
     return mat
     
+def to_save_sim3_fmt(extran:np.ndarray, scale:float):
+    data_vec = np.zeros(13,dtype=np.float64)
+    data_vec[:12] = extran[:3,:].reshape(-1)
+    data_vec[-1] = scale
+    return data_vec
 
 def computeF(motion:np.ndarray, intran:np.ndarray):
     rotation = motion[:3,:3]

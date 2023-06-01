@@ -63,6 +63,8 @@ class BALoss:
         src_keypts = self.src_keypoint_list[index]
         tgt_keypts = self.tgt_keypoint_list[index]
         relpose = self.relpose_list[index]
+        sim3_relpose = np.copy(relpose)
+        sim3_relpose[:3,3] *= scale
         src_pcd_camcoord = nptran(pointcloud, extran)
         proj_src_pcd, src_rev = npproj(src_pcd_camcoord, np.eye(4), intran, self.img_shape)
         src_2d_kdtree = cKDTree(proj_src_pcd, leafsize=30)
@@ -71,8 +73,6 @@ class BALoss:
         src_pcd_query = src_pcd_query[src_dist_rev]
         src_matched_pts = src_keypts[src_dist_rev]
         tgt_matched_pts = tgt_keypts[src_dist_rev]
-        sim3_relpose = np.copy(relpose)
-        sim3_relpose[:,:3] *= scale
         tgt_pcd_camcoord = nptran(src_pcd_camcoord[src_rev][src_pcd_query], sim3_relpose)
         proj_tgt_pcd, tgt_rev = npproj(tgt_pcd_camcoord, np.eye(4), intran, self.img_shape)
         src_matched_pts = src_matched_pts[tgt_rev]
@@ -103,7 +103,7 @@ def options():
     
     io_parser = parser.add_argument_group()
     io_parser.add_argument("--keypoint_dir",type=str,default="../debug/data/")
-    io_parser.add_argument("--init_sim3",type=str,default="../KITTI-00/calib_res/he_calib_00.txt")
+    io_parser.add_argument("--init_sim3",type=str,default="../KITTI-00/calib_res/pso_calib_00.txt")
     io_parser.add_argument("--gt_sim3",type=str,default="../KITTI-00/calib_res/iba_calib_00.txt")
     
     arg_parser = parser.add_argument_group()
@@ -174,7 +174,7 @@ if __name__ == "__main__":
     Loss = BALoss(intran, args.img_shape, pointcloud_list, src_keypoint_list, tgt_keypoint_list, relpose_list, args.offset, args.max_pixel_dist)
     src_matched_kpt, tgt_matched_kpt, proj_tgt_pcd = Loss.vis_error(init_sim3_log, 0)
     init_loss = Loss.compute_error(init_sim3_log)
-    draw_tgt_img, draw_src_img = draw3corrpoints(tgt_img, src_img, tgt_matched_kpt, src_matched_kpt,proj_tgt_pcd.astype(np.int32))
+    draw_tgt_img, draw_src_img = draw3corrpoints(tgt_img, src_img, tgt_matched_kpt, proj_tgt_pcd.astype(np.int32), src_matched_kpt)
     plt.figure(dpi=200)
     plt.subplot(2,1,1)
     plt.title("Matched points:{} Loss:{:0.4f}".format(len(src_matched_kpt), init_loss))
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     plt.show()
     src_matched_kpt, tgt_matched_kpt, proj_tgt_pcd = Loss.vis_error(gt_sim3_log, 0)
     gt_loss = Loss.compute_error(gt_sim3_log)
-    draw_tgt_img, draw_src_img = draw3corrpoints(tgt_img, src_img, tgt_matched_kpt, src_matched_kpt, proj_tgt_pcd.astype(np.int32))
+    draw_tgt_img, draw_src_img = draw3corrpoints(tgt_img, src_img, tgt_matched_kpt, proj_tgt_pcd.astype(np.int32),src_matched_kpt)
     plt.figure(dpi=200)
     plt.subplot(2,1,1)
     plt.title("Matched points:{} Loss:{:0.4f}".format(len(src_matched_kpt), gt_loss))

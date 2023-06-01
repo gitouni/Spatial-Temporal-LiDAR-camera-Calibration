@@ -103,6 +103,7 @@ def options():
     io_parser = parser.add_argument_group()
     io_parser.add_argument("--keypoint_dir",type=str,default="../debug/data/")
     io_parser.add_argument("--init_sim3",type=str,default="../KITTI-00/calib_res/he_calib_00.txt")
+    io_parser.add_argument("--save_sim3",type=str,default="../KITTI-00/calib_res/pso_calib_00.txt")
     
     arg_parser = parser.add_argument_group()
     arg_parser.add_argument("--offset",type=float,default=-1)
@@ -111,7 +112,7 @@ def options():
     arg_parser.add_argument("--particle_size",type=int,default=4000)
     arg_parser.add_argument("--max_iter",type=int,default=100)
     arg_parser.add_argument("--vratio",type=float,default=0.1)
-    arg_parser.add_argument("--view",type=str2bool,default=True)
+    arg_parser.add_argument("--hybrid",type=str2bool,default=True)
     args = parser.parse_args()
     args.seq_id = "%02d"%args.seq
     return args
@@ -167,7 +168,7 @@ if __name__ == "__main__":
         Vmin = -Xrange * args.vratio,
         Vmax = Xrange * args.vratio,
         record_T = -1,
-        hybrid = False
+        hybrid = args.hybrid
     )
     pso.init_Population(init_sim3_log)
     sol,fval = pso.solve()
@@ -176,3 +177,6 @@ if __name__ == "__main__":
     scale = sol[-1]
     print("solved extran:{}".format(sol_extran))
     print("solved scale:{}".format(scale))
+    sim3_data = to_save_sim3_fmt(sol_extran, scale)
+    np.savetxt(args.save_sim3, sim3_data[None,:])  # save a single row rather than a column
+    print("sim3 data saved to {}.".format(args.save_sim3))

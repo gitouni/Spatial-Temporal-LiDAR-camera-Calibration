@@ -27,10 +27,10 @@ def options():
     io_parser.add_argument("--keyframe_id",type=str,default="../KITTI-00/FrameId.yml")
     io_parser.add_argument("--key_config",type=str,default="../config/debug/KeyFrameIO.yml")
     io_parser.add_argument("--save_dir",type=str,default="../debug/data/")
-    io_parser.add_argument("--keyframe_index",type=int,nargs="+",default=[50*i for i in range(2)])
+    io_parser.add_argument("--keyframe_index",type=int,nargs="+",default=[50*i for i in range(10)])
     
     arg_parser = parser.add_argument_group()
-    arg_parser.add_argument("--best_convis_num",type=int,default=1)
+    arg_parser.add_argument("--best_convis_num",type=int,default=2)
     args = parser.parse_args()
     return args
 
