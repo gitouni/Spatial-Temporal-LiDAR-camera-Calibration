@@ -56,6 +56,7 @@ int main(int argc, char** argv){
     p.join();
     optimizer.UpdateISAM();
     optimizer.writePoses(output_isam_poses);
+    std::cout << "isam optimized poses saved to " << output_isam_poses << std::endl;
     // *** Results of ISAM and Multway are too similar! ***
     if(use_multiway){
         optimizer.MultiRegistration(odom_refine);

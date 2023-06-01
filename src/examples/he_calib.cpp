@@ -15,8 +15,8 @@ int main(int argc, char** argv){
     }
     std::string config_file(argv[1]);
     YAML::Node config = YAML::LoadFile(config_file);
-    YAML::Node io_config = config["io"];
-    YAML::Node runtime_config = config["runtime"];
+    const YAML::Node &io_config = config["io"];
+    const YAML::Node &runtime_config = config["runtime"];
     std::string base_dir = io_config["BaseDir"].as<std::string>();
     checkpath(base_dir);
     std::vector<Eigen::Isometry3d> vTwc, vTwl, vTwlraw;
@@ -26,6 +26,7 @@ int main(int argc, char** argv){
     const std::string resLPFileName = base_dir + io_config["ResLPFile"].as<std::string>();
     const std::string KyeFrameIdFile = base_dir + io_config["VOIdFile"].as<std::string>();
 
+    const bool zero_translation = runtime_config["zero_translation"].as<bool>();
     const bool regulation = runtime_config["regulation"].as<bool>();
     const double regulation_weight = runtime_config["regulation_weight"].as<double>();
     const int inner_iter = runtime_config["inner_iter"].as<int>();
@@ -59,7 +60,8 @@ int main(int argc, char** argv){
     std::cout << "Rotation: \n" << RCL << std::endl;
     std::cout << "Translation: \n" << tCL << std::endl;
     std::cout << "s :" << s << std::endl;
-
+    if(zero_translation)
+        tCL.setZero(); // Translation is too bad
     std::tie(RCL,tCL,s) = HECalibRobustKernelg2o(vmTwc, vmTwl, RCL, tCL, s, regulation, regulation_weight, verborse);
     std::cout << "Robust Kernel Hand-eye Calibration with Regulation:\n";
     std::cout << "Rotation: \n" << RCL << std::endl;

@@ -1,5 +1,3 @@
-#include "io_tools.h"
-#include "orb_slam/include/System.h"
 #include <Eigen/Dense>
 #include <opencv2/core/eigen.hpp>
 
@@ -7,6 +5,10 @@
 #include <chrono>
 #include <fstream>
 #include <limits>
+#include "io_tools.h"
+#include "orb_slam/include/System.h"
+#include <yaml-cpp/yaml.h>
+
 
 void check_exist(std::string &file){
     if(!file_exist(file)){
@@ -69,35 +71,43 @@ void visual_odometry(ORB_SLAM2::System* SLAM, std::vector<Eigen::Isometry3d> &Tw
         Twc_list.push_back(Twc);
     }
     std::cout << "\033[33;1mVisual Odometry Finished!\033[0m" << std::endl;
-    if(file_exist(KeyFrameDir)){
-        std::cout << "Directory " << KeyFrameDir  << " for saving existed. Try to Delete it." << std::endl;
-        remove_directory(KeyFrameDir.c_str());
-        std::cout << "Existing Directory deleted successsfully." << std::endl;
-    }
+    
     SLAM->SaveKeyFrames(KeyFrameDir);
     SLAM->SaveMap(MapFile);
 
 }
 
 int main(int argc, char** argv){
-    if(argc < 7){
-        std::cout << "\033[31;1m Expected args: kitti_seq_dir orb_setting_file orb_vocabulary_file TwcFile KeyFrameDir MapFile.\033[0m" << std::endl;
+    if(argc < 2){
+        std::cout << "\033[31;1m Expected args: config \033[0m" << std::endl;
         return -1;
     }
-    
-    std::string seq_dir = argv[1];
-    std::string orb_yml = argv[2];
-    std::string orb_voc = argv[3];
-    std::string TwcFile = argv[4]; // output
-    std::string keyframe_dir = argv[5]; // output
-    std::string mapfile = argv[6];
+    YAML::Node config = YAML::LoadFile(argv[1]);
+    std::string root_path = config["root_path"].as<std::string>();
+    checkpath(root_path);
+    const YAML::Node &orb_config = config["orb"];
+    const YAML::Node &io_config = config["io"];
+    std::string seq_dir = root_path + io_config["seq_dir"].as<std::string>();
+    std::string orb_yml = root_path + orb_config["setting"].as<std::string>();
+    std::string orb_voc = root_path + orb_config["Vocabulary"].as<std::string>();
+    std::string TwcFile = root_path + io_config["save_pose"].as<std::string>(); // output
+    std::string keyframe_dir = root_path + io_config["keyframe_dir"].as<std::string>(); // output
+    std::string mapfile = root_path + io_config["MapFile"].as<std::string>();
+    bool vis = orb_config["vis"].as<bool>();
     checkpath(seq_dir);
     checkpath(keyframe_dir);
+    if(file_exist(keyframe_dir)){
+        std::cout << "Directory " << keyframe_dir  << " for saving existed. Try to Delete it." << std::endl;
+        remove_directory(keyframe_dir.c_str());
+        std::cout << "Existing Directory deleted successsfully." << std::endl;
+    }
+    makedir(keyframe_dir.c_str());
     check_exist(seq_dir);
     check_exist(orb_yml);
     check_exist(orb_voc);
-    std::string img_dir = seq_dir + "image_0/";
-    std::string timefile = seq_dir + "times.txt";
+    std::string img_dir = seq_dir + orb_config["image_dir"].as<std::string>();
+    std::string timefile = seq_dir + orb_config["timestamp"].as<std::string>();
+    checkpath(img_dir);
     std::vector<std::string> vImageFiles;
     std::vector<double> vTimeStamps;
     LoadTimestamp(timefile, vTimeStamps);
@@ -109,11 +119,11 @@ int main(int argc, char** argv){
         return -1;
     }
     std::cout << "Found " << vTimeStamps.size() << " Frames of Timestamps, Laser Scans and Images." << std::endl;
-    ORB_SLAM2::System* orbSLAM(new ORB_SLAM2::System(orb_voc, orb_yml, ORB_SLAM2::System::MONOCULAR, false)); // No Interface for VO
+    ORB_SLAM2::System* orbSLAM(new ORB_SLAM2::System(orb_voc, orb_yml, ORB_SLAM2::System::MONOCULAR, vis)); // No Interface for VO
     std::vector<Eigen::Isometry3d> vTwc;
     std::vector<std::size_t> vKFFrameId;
     vTwc.reserve(vImageFiles.size());
-    visual_odometry(orbSLAM, std::ref(vTwc), std::ref(vKFFrameId), std::ref(vImageFiles), std::ref(vTimeStamps), std::ref(keyframe_dir), mapfile);
+    visual_odometry(orbSLAM, vTwc, vKFFrameId, vImageFiles, vTimeStamps, keyframe_dir, mapfile);
     std::cout << "Total visual Frames: " << vTwc.size() << ", Key Frames: " << vKFFrameId.size() << std::endl;
     writeData(TwcFile, vTwc);
 

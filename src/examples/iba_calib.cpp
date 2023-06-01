@@ -202,10 +202,10 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
                 double u1 = pKFConv->mvKeysUn[convis_idx].pt.x;
                 double v1 = pKFConv->mvKeysUn[convis_idx].pt.y;
                 Eigen::Matrix4d relPose = relPoseList[pKFConvi];  // Twc2 * inv(Twc1)
-                // IBATestEdge* e = new IBATestEdge(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0, u1, v1, p0, 
-                //     relPose.topLeftCorner(3, 3), relPose.topRightCorner(3, 1));
-                IBAPlaneEdgeAD* e = new IBAPlaneEdgeAD(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0, u1, v1, p0, n0,
+                IBATestEdge* e = new IBATestEdge(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0, u1, v1, p0, 
                     relPose.topLeftCorner(3, 3), relPose.topRightCorner(3, 1));
+                // IBAPlaneEdgeAD* e = new IBAPlaneEdgeAD(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0, u1, v1, p0, n0,
+                //     relPose.topLeftCorner(3, 3), relPose.topRightCorner(3, 1));
                 e->setId(edge_cnt++);
                 e->setVertex(0, v);
                 e->setInformation(Eigen::Matrix2d::Identity());
@@ -240,9 +240,9 @@ int main(int argc, char** argv){
     }
     std::string config_file(argv[1]);
     YAML::Node config = YAML::LoadFile(config_file);
-    YAML::Node io_config = config["io"];
-    YAML::Node orb_config = config["orb"];
-    YAML::Node runtime_config = config["runtime"];
+    const YAML::Node &io_config = config["io"];
+    const YAML::Node &orb_config = config["orb"];
+    const YAML::Node &runtime_config = config["runtime"];
     std::string base_dir = io_config["BaseDir"].as<std::string>();
     std::string pointcloud_dir = io_config["PointCloudDir"].as<std::string>();
     checkpath(base_dir);
@@ -326,7 +326,7 @@ int main(int argc, char** argv){
             std::cout << "Rotation:\n" << optimizedRotation << std::endl;
             std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;
             std::cout << "Scale: " << optimizedScale << std::endl;
-            auto logger = g2oLogEdges<IBAPlaneEdgeAD>(optimizer);
+            auto logger = g2oLogEdges<IBATestEdge>(optimizer);
             print_map("Statics of Edge Error", logger);
         }
     }
@@ -336,7 +336,8 @@ int main(int argc, char** argv){
     std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;
     std::cout << "Scale: " << optimizedScale << std::endl;
     rigid.topLeftCorner(3, 3) = optimizedRotation;
-    rigid.topLeftCorner(3, 1) = optimizedTranslation;
-    writeSim3(resFile, rigid, scale);
+    rigid.topRightCorner(3, 1) = optimizedTranslation;
+    writeSim3(resFile, rigid, optimizedScale);
+    std::cout << "Sim3 Result saved to " << resFile << std::endl;
     
 }
