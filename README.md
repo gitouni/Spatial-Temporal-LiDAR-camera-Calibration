@@ -9,7 +9,7 @@ More recent version would be OK.
 # Dependencies
 * [Eigen 3](http://eigen.tuxfamily.org/) (`libeigen3-dev` by apt on Ubuntu/Debian Systems)
 * [OpenCV 4.x](http://opencv.org/) (It should be installed with ROS noetic, but our codes do not need ROS)
-* [Pangolin](https://github.com/stevenlovegrove/Pangolin) (Installed to view ORB_SLAM2, but not important for our implementation)
+* [Pangolin](https://github.com/stevenlovegrove/Pangolin) (It is installed to view ORB_SLAM2, but does not impact our implementation)
 * [g2o 2023](https://github.com/RainerKuemmerle/g2o/releases/tag/20230223_git) (It is compatible with C++ 17)
 * [Open3D](https://github.com/isl-org/Open3D) (C++ build)
 # Install
