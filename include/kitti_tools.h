@@ -122,6 +122,28 @@ void writeSim3(const std::string &outfile, const Eigen::Matrix4d &pose, const do
     of.close();
 }
 
+/**
+ * @brief write 13 entries: 12 for 3x4 Rigid, 1 for scale
+ * 
+ * @param outfile File to Write (ASCII)
+ * @param R Rotation
+ * @param t Translation
+ * @param scale scale
+ */
+void writeSim3(const std::string &outfile, const Eigen::Matrix3d &R, const Eigen::Vector3d &t, const double scale){
+    std::ofstream of(outfile, std::ios::ate);
+    of.precision(std::numeric_limits< double >::max_digits10);
+    for(Eigen::Index ri=0; ri<3; ++ri)
+    {
+        for(Eigen::Index ci=0; ci<3; ++ci){
+            of << R(ri,ci) << " ";
+        }
+        of << t(ri) << " ";
+    }
+    of << scale;
+    of.close();
+}
+
 std::tuple<Eigen::Matrix4d, double> readSim3(const std::string &file){
     std::ifstream ifs(file);
     double scale = 1.0;
