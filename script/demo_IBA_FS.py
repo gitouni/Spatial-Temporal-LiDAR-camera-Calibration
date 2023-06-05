@@ -8,11 +8,17 @@ import cv2
 from matplotlib import pyplot as plt
 from cv_tools import *
 from scipy.spatial import cKDTree
-from GP_reg import GPR
+from GP_reg import get_sklearn_gpr, GPR
 from joblib import delayed, Parallel
 
 
 os.chdir(os.path.dirname(__file__))
+
+def print_params(title:str="", params:dict={}):
+    print(title,end="")
+    for key, value in params.items():
+        print("{}: {}".format(key, value),end=" ")
+    print()
 
 def str2bool(s:str) -> bool:
     if s.isdigit():
@@ -37,8 +43,8 @@ def options():
     io_parser.add_argument("--KeyPointsKey",type=str,default="mvKeysUn")
     io_parser.add_argument("--MapPointKey",type=str,default="mvpMapPointsId")
     io_parser.add_argument("--CorrKey",type=str,default="mvpCorrKeyPointsId")
-    io_parser.add_argument("--index_i",type=int,default=56)
-    io_parser.add_argument("--index_j",type=int,default=57)
+    io_parser.add_argument("--index_i",type=int,default=0)
+    io_parser.add_argument("--index_j",type=int,default=1)
     io_parser.add_argument("--debug_log",type=str,default="")
     io_parser.add_argument("--Twc_file",type=str,default="../Twc.txt")
     io_parser.add_argument("--Twl_file",type=str,default="../Twl.txt")
@@ -50,6 +56,8 @@ def options():
     arg_parser.add_argument("--gpr_max_pts",type=int,default=100)
     arg_parser.add_argument("--gpr_max_cov",type=float,default=0.1)
     arg_parser.add_argument("--gpr",type=str2bool,default=True)
+    arg_parser.add_argument("--gpr_opt",type=str2bool, default=True)
+    arg_parser.add_argument("--mp",type=str2bool,default=True)
     args = parser.parse_args()
     args.seq_id = "%02d"%args.seq
     return args
@@ -113,18 +121,19 @@ def superpixel_approx(pcd:np.ndarray, query:np.ndarray, pixels:np.ndarray, intra
             return query_pt
         neigh_pts = neigh_pts[proj_rev]
         depth = neigh_pts[:,-1]
-        try:
-            gpr = GPR()
-            gpr.fit(proj_pts, depth)
-            pz, cov = gpr.predict(pixel[None,:])
-            if cov > args.gpr_max_cov:
-                return query_pt
-            pz = pz.item()
-            px = (pixel[0] - cx) / fx * pz
-            py = (pixel[1] - cy) / fy * pz
-            return np.array([px, py, pz])
-        except Exception as e:
-            return query_pt
+        # try:
+        gpr = GPR(optimize=args.gpr_opt)
+        gpr.params['l'] = 10
+        gpr.params['sigma_f'] = 10
+        gpr.fit(proj_pts, depth)
+        print_params(params=gpr.params)
+        pz = gpr.predict(pixel[None,:])
+        pz = pz.item()
+        px = (pixel[0] - cx) / fx * pz
+        py = (pixel[1] - cy) / fy * pz
+        return np.array([px, py, pz])
+        # except Exception as e:
+        #     return query_pt
     
     pcd_kdtree = cKDTree(pcd, leafsize=30)
     N = query.shape[0]
@@ -133,12 +142,13 @@ def superpixel_approx(pcd:np.ndarray, query:np.ndarray, pixels:np.ndarray, intra
     fy = intran[1,1]
     cx = intran[0,2]
     cy = intran[1,2]
-    
-    # sp_pts = np.zeros([N,3])
-    # for i in range(N):
-    #     sp_pts[i, :] = gpr_approx(i)
-    parallel_res = Parallel(n_jobs=-1)(delayed(gpr_approx)(idx) for idx in range(query.shape[0]))
-    sp_pts = np.array(parallel_res)
+    if not args.mp:
+        sp_pts = np.zeros([N,3])
+        for i in range(N):
+            sp_pts[i, :] = gpr_approx(i)
+    else:
+        parallel_res = Parallel(n_jobs=-1)(delayed(gpr_approx)(idx) for idx in range(query.shape[0]))
+        sp_pts = np.array(parallel_res)
     return sp_pts
 
 
@@ -193,11 +203,12 @@ if __name__ == "__main__":
     tgt_proj_pcd, tgt_proj_rev = npproj(tgt_pcd_arr, np.eye(4), intran, tgt_img.shape)
     src_matched_pts = src_matched_pts[tgt_proj_rev]
     tgt_matched_pts = tgt_matched_pts[tgt_proj_rev]
+    err = np.mean(np.sqrt(np.sum((tgt_matched_pts - tgt_proj_pcd)**2,axis=1)))
     draw_tgt_img, draw_src_img = draw4corrpoints(tgt_img, src_img, *list(map(lambda arr: arr.astype(np.int32),[tgt_matched_pts, tgt_proj_pcd, src_matched_pts, src_proj_pcd])))
     
     plt.figure(dpi=200)
     plt.subplot(2,1,1)
-    plt.title("Matched points:{}".format(tgt_matched_pts.shape[0]))
+    plt.title("Matched points:{} | error:{:0.4}".format(tgt_matched_pts.shape[0],err))
     plt.imshow(draw_src_img)
     plt.subplot(2,1,2)
     plt.imshow(draw_tgt_img)
