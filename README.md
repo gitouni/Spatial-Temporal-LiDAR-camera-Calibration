@@ -12,7 +12,7 @@ More recent version would be OK.
 * [OpenMP](https://github.com/llvm-mirror/openmp) (`libomp-dev`)
 * [OpenCV 4.x](http://opencv.org/)
 * [Pangolin](https://github.com/stevenlovegrove/Pangolin) (visual tools for ORB_SLAM2)
-* [g2o 2023](https://github.com/RainerKuemmerle/g2o/releases/tag/20230223_git) (`-DG2O_USE_OPENMP=ON`)
+* [g2o 2023](https://github.com/RainerKuemmerle/g2o/releases/tag/20230223_git) (`-DG2O_USE_OPENMP=ON`, NO support for earlier version)
 * [Open3D](https://github.com/isl-org/Open3D) (built for C++)
 # Install
 * Copy [Thirdparty](https://github.com/UZ-SLAMLab/ORB_SLAM3/tree/master/Thirdparty) and [Vocabulary](https://github.com/UZ-SLAMLab/ORB_SLAM3/tree/master/Vocabulary) directories to [src/orb_slam/](./src/orb_slam/) <details>
