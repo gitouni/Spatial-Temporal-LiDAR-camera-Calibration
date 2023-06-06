@@ -7,10 +7,21 @@
 #include "kitti_tools.h"
 #include <opencv2/highgui/highgui.hpp>
 
+/**
+ * @brief Read point cloud into pcl::PointCloud
+ * 
+ * @tparam PointType 
+ * @param filename 
+ * @param point_cloud 
+ * @param skip read one point per "skip" points, skip=1 menas loading all points
+ * @return true 
+ * @return false 
+ */
 template <typename PointType>
-bool readPointCloud(const std::string filename, pcl::PointCloud<PointType> &point_cloud)
+bool readPointCloud(const std::string filename, pcl::PointCloud<PointType> &point_cloud, unsigned short skip=1)
 {
     std::string suffix = filename.substr(filename.find_last_of('.') + 1);
+    std::size_t cnt = 0;
     if(suffix=="pcd"){
         pcl::io::loadPCDFile(filename, point_cloud);
         return true;
@@ -36,7 +47,8 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<PointType> &poin
             point.z = s;
             binfile.read((char*)&s,sizeof(float));
             point.intensity = s;
-            point_cloud.push_back(point);
+            if(++cnt % skip == 0)
+                point_cloud.push_back(point);
         }
         }
         binfile.close();
@@ -52,12 +64,14 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<PointType> &poin
  * 
  * @param filename 
  * @param points vector of xyz points
+ * @param skip read one point per "skip" points, skip=1 menas loading all points
  * @return true 
  * @return false 
  */
-bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &points)
+bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &points, unsigned short skip=1)
 {
     std::string suffix = filename.substr(filename.find_last_of('.') + 1);
+    std::size_t cnt = 0;
     if(suffix=="pcd"){
         pcl::PointCloud<pcl::PointXYZ> point_cloud;
         pcl::io::loadPCDFile(filename, point_cloud);
@@ -88,7 +102,8 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &po
             point(2) = s;
             binfile.read((char*)&s,sizeof(float));
             // s is intensity and won't be loaded to Vector3d
-            points.push_back(point);
+            if(++cnt % skip == 0)
+                points.push_back(point);
         }
         }
         binfile.close();
@@ -104,12 +119,14 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &po
  * 
  * @param filename 
  * @param points vector of xyzi points
+ * @param skip read one point per "skip" points, skip=1 menas loading all points
  * @return true 
  * @return false 
  */
-bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &points)
+bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &points, unsigned short skip=1)
 {
     std::string suffix = filename.substr(filename.find_last_of('.') + 1);
+    std::size_t cnt = 0;
     if(suffix=="pcd"){
         pcl::PointCloud<pcl::PointXYZI> point_cloud;
         pcl::io::loadPCDFile(filename, point_cloud);
@@ -140,7 +157,8 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &po
             point(2) = s;
             binfile.read((char*)&s,sizeof(float));
             point(3) = s;
-            points.push_back(point);
+            if(++cnt % skip == 0)
+                points.push_back(point);
         }
         }
         binfile.close();
