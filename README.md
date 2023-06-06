@@ -17,11 +17,10 @@ More recent version would be OK.
 # Install
 * Copy [Thirdparty](https://github.com/UZ-SLAMLab/ORB_SLAM3/tree/master/Thirdparty) and [Vocabulary](https://github.com/UZ-SLAMLab/ORB_SLAM3/tree/master/Vocabulary) directories to [src/orb_slam/](./src/orb_slam/) <details>
   <summary>Troubleshooting</summary>
-  Note that this version of ORB_SLAM2 is compiled in C++ 17 version and g2o 2023, so DO NOT copy the whole ORB_SLAM2 repo to replace our directory</details>
-* If you have installed g2o through ROS (if you have ROS packages like `base_local_planner`/`teb_local_planner`/`mpc_local_planner`), please exclude it from LD_LIBRARY_PATH environment variable. Or, you can simply source our shell in the terminal:`source config/settings.sh`
+  Note that the implementation of ORB_SLAM2 in our repo is different from the original one, so DO NOT copy the whole ORB_SLAM2 repo to replace our directory</details>
 * Build and Compile: `cd build && cmake .. -Wno-dev && make -j` <details>
   <summary>TroubleShooting</summary>
-  If you have installed g2o through ROS (if you have ROS packages like `base_local_planner`/`teb_local_planner`/`mpc_local_planner`), please exclude it from    LD_LIBRARY_PATH environment variable, or `source config/settings.sh`. For performance, rebuild g2o with CMake flag `-DG2O_USE_OPENMP=ON`. See [here](https://github.com/RainerKuemmerle/g2o/issues/689#issuecomment-1565658030). </details>
-
+  If you have installed g2o through ROS (if you have ROS packages like `base_local_planner`/`teb_local_planner`/`mpc_local_planner`), please exclude it from    LD_LIBRARY_PATH environment variable, or `source config/settings.sh`. </details>
+* For performance, rebuild g2o with CMake flag `-DG2O_USE_OPENMP=ON`. See [here](https://github.com/RainerKuemmerle/g2o/issues/689#issuecomment-1565658030).
 # How to Use
 ## Step 1
