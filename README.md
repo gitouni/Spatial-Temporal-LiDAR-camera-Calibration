@@ -8,7 +8,7 @@ Spatial-Temporal-LiDAR-camera-Calibration
 More recent version would be OK. 
 # Dependencies
 * [Eigen 3](http://eigen.tuxfamily.org/) (`libeigen3-dev`)
-* [LBFGSpp](https://github.com/yixuan/LBFGSpp) (GPR hyperparameter adaptation, `make install` or add `include_directories`)
+* [LBFGSpp](https://github.com/yixuan/LBFGSpp) (`make install` or add to `include_directories`)
 * [OpenMP](https://github.com/llvm-mirror/openmp) (`libomp-dev`)
 * [OpenCV 4.x](http://opencv.org/)
 * [Pangolin](https://github.com/stevenlovegrove/Pangolin) (visual tools for ORB_SLAM2)
