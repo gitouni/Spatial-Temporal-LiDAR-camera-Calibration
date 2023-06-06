@@ -164,7 +164,7 @@ class GPR:
             return self.K_cache, self.L_cache, self.alpha_cache
         K = self.Kff(theta[0], theta[1]) + self.params["noise"] * np.eye(self.n)
         L = np.linalg.cholesky(K)
-        alpha = np.linalg.solve(L.T, np.linalg.solve(L, self.train_y))
+        alpha = np.linalg.solve(L.T, np.linalg.solve(L, self.train_y))  # Kinv @ train_y
         self.theta_cache = theta
         self.K_cache = K
         self.L_cache = L
