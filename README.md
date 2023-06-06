@@ -3,7 +3,7 @@ Spatial-Temporal-LiDAR-camera-Calibration
 # Tested Environment
 |C++|CMake|g++|python|System|
 |---|---|---|---|---|
-|C++ 17| CMake 3.20| 9.4.0| 3.8| Ubuntu 20.04|
+|C++ 17| CMake 3.25| 9.4.0| 3.8| Ubuntu 20.04|
 
 More recent version would be OK. 
 # Dependencies
