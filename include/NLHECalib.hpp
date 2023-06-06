@@ -1,3 +1,4 @@
+#pragma once
 #include <Eigen/Dense>
 #include <vector>
 #include <g2o/core/base_vertex.h>

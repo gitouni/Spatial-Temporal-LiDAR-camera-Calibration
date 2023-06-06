@@ -1,3 +1,4 @@
+#pragma once
 #include <Eigen/Dense>
 
 // C++ 17 or later do not aligned_allocator these anymore
