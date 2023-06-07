@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.5)
-set(CMAKE_CXX_FLAGS "-std=c++17")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g")  # -g -fsanitize=address
-execute_process(COMMAND source ${PROJECT_SOURCE_DIR}/config/settings.sh)  # clean LD_LIBRARY_PATH ENVPATH to avoid g2o conflicts with ROS
+set(CMAKE_CXX_FLAGS "-std=c++17 -fopenmp")
+find_package(OpenMP REQUIRED)
+if(OPENMP_FOUND)
+  message(STATUS "Compiling with OpenMP ${OpenMP_C_FLAGS}" )
+endif(OPENMP_FOUND)
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -fopenmp")  # -g -fsanitize=address
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -19,18 +22,6 @@ set(YAML_CPP_LIB /usr/local/lib/libyaml-cpp.so)
 link_libraries(${YAML_CPP_LIB})
 include_directories(${G2O_INCLUDE_DIRS} "/usr/include/eigen3")
 link_directories(${g2o_DIR})
-# ${g2o_DIR}/libg2o_csparse_extension.so
-# ${g2o_DIR}/libg2o_core.so
-# ${g2o_DIR}/libg2o_solver_cholmod.so
-# ${g2o_DIR}/libg2o_solver_csparse.so
-# ${g2o_DIR}/libg2o_solver_dense.so
-# ${g2o_DIR}/libg2o_solver_pcg.so 
-# ${g2o_DIR}/libg2o_stuff.so
-# ${g2o_DIR}/libg2o_types_icp.so
-# ${g2o_DIR}/libg2o_types_sba.so
-# ${g2o_DIR}/libg2o_types_sim3.so
-# ${g2o_DIR}/libg2o_types_slam2d.so
-# ${g2o_DIR}/libg2o_types_slam3d.so
 set (G2O_LIBS
 g2o_csparse_extension
 g2o_core 
@@ -44,7 +35,9 @@ g2o_types_sba
 g2o_types_sim3
 g2o_types_slam2d
 g2o_types_slam3d)
-MESSAGE("g2o_DIR: " ${g2o_DIR})
+# NLOpt
+find_package(NLopt REQUIRED)
+set (NLOPT_LIB nlopt_cxx)
 # OpenCV
 find_package(OpenCV 4 REQUIRED)
 # Eigen3
@@ -187,19 +180,26 @@ add_dependencies(ba_calib floam ORB_SLAM2)
 target_link_libraries(ba_calib
 ${ORB_LIBARIES}
 )
-target_include_directories(ba_calib PRIVATE 
-include
-${ORB_INCLUDE_DIRS}
-)
 
 add_executable(icp_calib src/examples/icp_calib.cpp)
 target_link_libraries(icp_calib
 ${Open3D_LIBRARIES}
 )
 
-add_executable(kitti_he_demo src/examples/he_demo_kitti.cpp)
+add_executable(iba_calib_plane src/examples/iba_calib_plane.cpp)
+add_dependencies(iba_calib_plane ORB_SLAM2)
+target_link_libraries(iba_calib_plane
+${ORB_LIBARIES}
+${PCL_LIBRARIES}
+${G2O_LIBS}
+${GLOG_LIBRARY_DIR} 
+)
+target_include_directories(iba_calib_plane PRIVATE 
+${ORB_INCLUDE_DIRS}
+)
+add_executable(he_calib src/examples/he_calib.cpp)
 target_link_libraries(
-  kitti_he_demo
+  he_calib
   ${EIGEN3_LIBS}
   ${G2O_LIBS}
   ${GLOG_LIBRARY_DIR} 
