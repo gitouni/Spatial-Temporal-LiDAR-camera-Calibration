@@ -38,6 +38,19 @@ void pdist(const std::vector<Vector2<T> > &X1, const std::vector<Vector2<T> > &X
             Dist(ri, ci) = (X1[ci] - X2[ri]).dot(X1[ci] - X2[ri]);  // sqaured
 }
 
+template <typename T = number_t>
+void self_pdist(const std::vector<Vector2<T> > &X1, MatrixX<T> &Dist){
+    Dist.resize(X1.size(), X1.size());
+    for(Eigen::Index ri = 0; ri < Dist.rows(); ++ri)
+        for(Eigen::Index ci = ri + 1; ci < Dist.cols(); ++ci)
+        {
+            Dist(ri, ci) = (X1[ci] - X1[ri]).dot(X1[ci] - X1[ri]);  // sqaured
+            Dist(ci, ri) = Dist(ri, ci);
+        }
+    for(Eigen::Index ri = 0; ri < Dist.rows(); ++ri)
+        Dist(ri, ri) = T(0.);
+            
+}
 
 template <typename T = number_t>
 MatrixX<T> rbf_kernel_2d(const std::vector<Vector2<T> > &X1, const std::vector<Vector2<T> > &X2, const T sigma, const T l){
@@ -253,7 +266,7 @@ public:
     {
         trX = train_x;
         trY = train_y;
-        pdist(train_x, train_x, Dist);
+        self_pdist(train_x, Dist);
         if(optimize)
         {
             LBFGSpp::LBFGSBParam<double> param;
@@ -342,7 +355,7 @@ public:
     T fit_predict(const std::vector<Vector2<T>> &train_x, const VectorX<T> &train_y, const Vector2<T> &test_x){
         int N = train_x.size();
         MatrixX<T> Dist;
-        pdist<T>(train_x, train_x, Dist);
+        self_pdist<T>(train_x, Dist);
         MatrixX<T> Kff;
         MatrixX<T> L;
         VectorX<T> alpha;
