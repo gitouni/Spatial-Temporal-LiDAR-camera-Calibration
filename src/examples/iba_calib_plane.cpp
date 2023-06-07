@@ -11,6 +11,7 @@
 #include "pointcloud.h"
 #include "IBACalib.hpp"
 #include <mutex>
+#include <set>
 
 typedef std::uint32_t IndexType; // other types cause error, why?
 typedef std::vector<IndexType> VecIndex;
@@ -21,35 +22,22 @@ typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector3d, double, 3, nanoflan
 typedef g2o::BlockSolver<g2o::BlockSolverTraits<7, 1>> BlockSolverType; // the second template parameter is not used unless Schur Complement is used
 typedef g2o::LinearSolverCholmod<BlockSolverType::PoseMatrixType> LinearSolverType; // Linear Solver Type
 
-enum ManifoldType{
-    PLANE,
-    NON_PLANE,
+class IBAPlaneParams{
+public:
+    IBAPlaneParams(){};
+public:
+    double max_pixel_dist = 1.5;
+    int min_covis_weight = 100;
+    int kdtree2d_max_leaf_size = 10;
+    int kdtree3d_max_leaf_size = 30;
+    double norm_radius = 0.6;
+    int norm_max_pts = 30;
+    double robust_kernerl_delta = 2.98;
+    double sq_err_threshold = 225.;
+    bool verborse = true;
 };
 
 
-class IBAParams{
-public:
-    IBAParams(){};
-public:
-    double max_pixel_dist = 2.;  // maximum distance to build correspondence between projected LiDAR points and Keypoints
-    int min_covis_weight = 200;  // minmum convisibility weight between two KeyFrames for optimization
-    int kdtree2d_max_leaf_size = 10;  // maximum leaf size of the KDTree for projectedPoints-Keypoints correspondence Search
-    int kdtree3d_max_leaf_size = 30;  // maximum leaf size of the KDTree for neighborhood LiDAR points Search
-    double neigh_radius = 0.6;  // build local manifold within this radius
-    int neigh_max_pts = 30;  // maximum points included in one local manifold (use KNN for first search)
-    double pl_eval_factor = 10.; // if the maximum eigen value of cross-variance matrix more than "pl_eval_factor" times the other two, build Plane rather than GPR
-    double robust_kernerl_delta = 4.;  // Delta Arg for Robust Huber Kernel 
-    bool verborse = true; // set to true for debugging
-};
-
-class Manifold{
-public:
-    ManifoldType type;
-    VecVector2d train_x;
-    Eigen::VectorXd train_y;
-    VecIndex idx;
-    Eigen::Vector3d normal;
-};
 
 void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyFrame* pKF,
     const int leaf_size, const double max_corr_dist, CorrSet &corrset)
@@ -95,34 +83,31 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
 }
 
 /**
- * @brief Extract a local Manifold of "points" querying "indices"
+ * @brief Compute normal of each point in points indexed by indices
  * 
  * @param points the whole point cloud
  * @param indices indices of selected points
  * @param radius radius to compute point covariance
  * @param max_leaf_size max leaf size of kdtree
  * @param max_pts max points of neighbours
- * @param pl_eval_factor plane/gpr selection
- * @param min_eval plane/gpr selection
- * @return std::tuple<std::vector<std::pair<VecIndex, Eigen::Vector3d> >, std::vector<bool>> Manifold Parameters
+ * @return std::tuple<VecVector3d, VecIndex> 
  */
-std::tuple<std::vector<std::pair<VecIndex, Eigen::Vector3d> >, std::vector<bool>> ExtractLocalManifold(const VecVector3d &points, const VecIndex &indices,
-    const double &radius, const int &max_leaf_size, const int &max_pts,
-    const double &pl_eval_factor=10.0, const double &min_eval=1e-2)
+std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, const VecIndex &indices,
+    const double radius, const int max_leaf_size, const int max_pts)
 {
     // std::unique_ptr<KDTree3D> kdtree(new KDTree3D(3, points, max_leaf_size));
     std::unique_ptr<KDTree3D> kdtree(new KDTree3D(3, points, max_leaf_size));
-    std::vector<std::pair<VecIndex, Eigen::Vector3d> > normals;
-    std::vector<bool> valid_indices;
+    VecVector3d normals;
+    VecIndex valid_indices;
     normals.reserve(indices.size());
-    valid_indices.resize(indices.size());
+    valid_indices.reserve(indices.size());
     for (std::size_t i = 0; i < indices.size(); ++i){
         const IndexType idx = indices[i];
         VecIndex indices(max_pts);
         std::vector<double> sq_dist(max_pts);
         nanoflann::KNNResultSet<double, IndexType> resultSet(max_pts);
         resultSet.init(indices.data(), sq_dist.data());
-        kdtree->index->findNeighbors(resultSet, points[idx].data(), nanoflann::SearchParameters(0.0F,true));
+        kdtree->index->findNeighbors(resultSet, points[idx].data(), nanoflann::SearchParameters());
         std::size_t k = resultSet.size();
         if(k < 3)
             continue;
@@ -138,20 +123,16 @@ std::tuple<std::vector<std::pair<VecIndex, Eigen::Vector3d> >, std::vector<bool>
         std::tie(normal, eval) = FastEigen3x3_EV(covariance);
         std::vector<double> eigenvalues{eval[0], eval[1], eval[2]};
         std::sort(eigenvalues.begin(), eigenvalues.end());
-        if(!(eigenvalues[2] > pl_eval_factor * eigenvalues[1] && eigenvalues[2] > pl_eval_factor * eigenvalues[0] && eigenvalues[2] > min_eval))
-        {
-            valid_indices[i] = false;
-        }else
-        {
-            normals.push_back(std::make_pair(VecIndex(i), normal)); // self-to-self distance is minimum
-            valid_indices[i] = true;
-        }
+        if(!(eigenvalues[2] > 3 * eigenvalues[1] && eigenvalues[2] > 3 * eigenvalues[0] && eigenvalues[2] > 1e-2))
+            continue; // Valid Plane Verification
+        normals.push_back(normal); // self-to-self distance is minimum
+        valid_indices.push_back(i);
     }
     return {normals, valid_indices};
 }
 
 void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames,
-    const g2o::Vector7 &init_sim3_log , g2o::SparseOptimizer &optimizer, const IBAParams &params)
+    const g2o::Vector7 &init_sim3_log , g2o::SparseOptimizer &optimizer, const IBAPlaneParams &params)
 {
     int cnt = 0;
     int edge_cnt = 0;
@@ -174,39 +155,46 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
     for(auto pair_it = std::make_pair(PointCloudFiles.begin(), KeyFrames.begin());
         pair_it.first != PointCloudFiles.end() && pair_it.second != KeyFrames.end(); pair_it.first++, pair_it.second++)
     {
-        VecVector3d points;
-        std::vector<std::pair<VecIndex, Eigen::Vector3d> > normals;
+        VecVector3d points, normals;
         readPointCloud(*(pair_it.first), points);
         ORB_SLAM2::KeyFrame* pKF = *(pair_it.second);
         const double H = pKF->mnMaxY, W = pKF->mnMaxX;
         TransformPointCloudInplace(points, initSE3); // Transfer to Camera coordinate
         CorrSet corrset; // pair of (idx of image points, idx of pointcloud points)
         FindProjectCorrespondences(points, pKF, params.kdtree2d_max_leaf_size, params.max_pixel_dist, corrset);
-        if(corrset.size() < 100)
+        if(corrset.size() < 50)
             continue;
-        VecIndex indices; // valid indices for projecion
-        VecIndex flags; // valid flags of `indices` through normal computing
-        indices.reserve(corrset.size());
-        for(const CorrType &corr:corrset)
-            indices.push_back(corr.second);
-        std::tie(normals, flags) = ExtractLocalManifold(points, indices, params.neigh_radius, params.kdtree3d_max_leaf_size, params.neigh_max_pts);
-        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(params.min_covis_weight);  // for debug
-        std::vector<std::map<int, int>> KptMapList; // KeyPoints Correspondence between Reference KF and Convisible KeyFrame
-        std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrame
+        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames = pKF->GetBestCovisibilityKeyFramesSafe(10);  // for debug
+        std::vector<std::map<int, int>> KptMapList; // Keypoint-Keypoint Corr
+        std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
+        std::set<int> srcKptIndices;  // Matched Keypoints in the Reference KeyFrame
         KptMapList.reserve(ConvisKeyFrames.size());
         relPoseList.reserve(ConvisKeyFrames.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
         for(auto pKFConv:ConvisKeyFrames)
         {
             auto KptMap = pKF->GetMatchedKptIds(pKFConv);
+            for(auto &kpt_pair:KptMap)
+                srcKptIndices.insert(kpt_pair.first);
             cv::Mat relPose = pKFConv->GetPose() * invRefPose;  // Transfer from c1 coordinate to c2 coordinate
             Eigen::Matrix4d relPoseEigen;
             cv::cv2eigen(relPose, relPoseEigen);
             KptMapList.push_back(std::move(KptMap));
             relPoseList.push_back(std::move(relPoseEigen));
         }
-        for(std::size_t sub_idx = 0; sub_idx < flags.size(); ++ sub_idx){
-            const IndexType idx = flags[sub_idx];
+        VecIndex indices; // valid indices for projecion
+        VecIndex subindices; // valid subindices of `indices` through normal computing
+        indices.reserve(corrset.size());
+        for(const CorrType &corr:corrset)
+        {
+            if(srcKptIndices.count(corr.first) > 0)  // Lidar-Keypoint corr in Keypoint-Keypoint corr
+                indices.push_back(corr.second);
+        }
+        std::tie(normals, subindices) = ComputeLocalNormal(points, indices, params.norm_radius, params.kdtree3d_max_leaf_size, params.norm_max_pts);
+        
+        for(std::size_t sub_idx = 0; sub_idx < subindices.size(); ++ sub_idx)
+        {
+            const IndexType idx = subindices[sub_idx];  // valid idx in corrset
             const int point2d_idx = corrset[idx].first;  // KeyPoint Idx matched with PointCloud
             const int point3d_idx = corrset[idx].second; // Point Idx matched with KeyPoints
             double u0 = pKF->mvKeysUn[point2d_idx].pt.x;
@@ -214,6 +202,9 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
             // transform 3d point back to LiDAR coordinate
             Eigen::Vector3d p0 = initSE3.inverse() * points[point3d_idx];  // cooresponding point (LiDAR coord)
             Eigen::Vector3d n0 = initSE3_4x4.topLeftCorner(3, 3).transpose() * normals[sub_idx];  // cooresponding point normal (LiDAR coord)
+            std::vector<double> u1_list, v1_list;
+            std::vector<Eigen::Matrix3d> R_list;
+            std::vector<Eigen::Vector3d> t_list;
             for(std::size_t pKFConvi = 0; pKFConvi < ConvisKeyFrames.size(); ++pKFConvi){
                 auto pKFConv = ConvisKeyFrames[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
@@ -223,19 +214,27 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
                 double u1 = pKFConv->mvKeysUn[convis_idx].pt.x;
                 double v1 = pKFConv->mvKeysUn[convis_idx].pt.y;
                 Eigen::Matrix4d relPose = relPoseList[pKFConvi];  // Twc2 * inv(Twc1)
-                // IBATestEdge* e = new IBATestEdge(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0, u1, v1, p0, 
-                //     relPose.topLeftCorner(3, 3), relPose.topRightCorner(3, 1));
-                IBAPlaneEdgeAD* e = new IBAPlaneEdgeAD(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0, u1, v1, p0, n0,
-                    relPose.topLeftCorner(3, 3), relPose.topRightCorner(3, 1));
-                e->setId(edge_cnt++);
-                e->setVertex(0, v);
-                e->setInformation(Eigen::Matrix2d::Identity());
-                g2o::RobustKernelHuber* rk(new g2o::RobustKernelHuber);
-                rk->setDelta(params.robust_kernerl_delta);
-                e->setRobustKernel(rk);
-                optimizer.addEdge(e);
+                u1_list.push_back(u1);
+                v1_list.push_back(v1);
+                R_list.push_back(relPose.topLeftCorner(3, 3));
+                t_list.push_back(relPose.topRightCorner(3, 1));             
                 
             }
+            int ErrorDim = u1_list.size();
+            if(ErrorDim == 0)
+                continue; // Should Not Run into
+            IBAPlaneEdge* e = new IBAPlaneEdge(pKF->fx, pKF->fy, pKF->cx, pKF->cy,
+             u0, v0, u1_list, v1_list,
+             p0, n0, R_list, t_list);
+            e->setId(edge_cnt++);
+            e->setVertex(0, v);
+            g2o::MatrixN<20> I;
+            I.setIdentity();
+            e->setInformation(I / double(ErrorDim));
+            g2o::RobustKernelHuber* rk(new g2o::RobustKernelHuber);
+            rk->setDelta(params.robust_kernerl_delta);
+            e->setRobustKernel(rk);
+            optimizer.addEdge(e);
         }
         ++cnt;
         if(params.verborse && (cnt % 100 == 0)){
@@ -280,13 +279,14 @@ int main(int argc, char** argv){
     checkpath(ORBKeyFrameDir);
     const std::string ORBMapFile = orb_config["MapFile"].as<std::string>();
     // runtime config
-    IBAParams params;
+    IBAPlaneParams params;
     params.max_pixel_dist = runtime_config["max_pixel_dist"].as<double>();
     params.min_covis_weight = runtime_config["min_covis_weight"].as<int>();
     params.kdtree2d_max_leaf_size = runtime_config["kdtree2d_max_leaf_size"].as<int>();
     params.kdtree3d_max_leaf_size = runtime_config["kdtree3d_max_leaf_size"].as<int>();
-    params.neigh_radius = runtime_config["neigh_radius"].as<double>();
-    params.neigh_max_pts = runtime_config["neigh_max_pts"].as<int>();
+    params.norm_radius = runtime_config["norm_radius"].as<double>();
+    params.norm_max_pts = runtime_config["norm_max_pts"].as<int>();
+    params.sq_err_threshold = runtime_config["sq_err_threshold"].as<double>();
     params.robust_kernerl_delta = runtime_config["robust_kernerl_delta"].as<double>();
     const int max_iba_iter = runtime_config["max_iba_iter"].as<int>();
     const int inner_iba_iter = runtime_config["inner_iba_iter"].as<int>();
@@ -342,7 +342,7 @@ int main(int argc, char** argv){
             std::cout << "Rotation:\n" << optimizedRotation << std::endl;
             std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;
             std::cout << "Scale: " << optimizedScale << std::endl;
-            auto logger = g2oLogEdges<IBAPlaneEdgeAD>(optimizer);
+            auto logger = g2oLogEdges<IBAPlaneEdge>(optimizer);
             print_map("Statics of Edge Error", logger);
         }
     }
