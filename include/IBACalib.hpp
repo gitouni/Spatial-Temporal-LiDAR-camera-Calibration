@@ -257,8 +257,8 @@ public:
             g2o::VectorN<3, T> _P1 = _R * _P0 + _t;
             T _u1_obs = _fx*_P1(0)/_P1(2) + _cx;
             T _v1_obs = _fy*_P1(1)/_P1(2) + _cy;
-            error[0] = _u1_obs - _u1;
-            error[1] = _v1_obs - _v1;
+            error[2*i] = _u1_obs - _u1;
+            error[2*i+1] = _v1_obs - _v1;
         }
         for(int i = N; i < 10; ++i)
         {

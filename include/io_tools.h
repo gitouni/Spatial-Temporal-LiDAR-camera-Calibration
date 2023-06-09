@@ -10,15 +10,13 @@
 /**
  * @brief Read point cloud into pcl::PointCloud
  * 
- * @tparam PointType 
  * @param filename 
  * @param point_cloud 
  * @param skip read one point per "skip" points, skip=1 menas loading all points
  * @return true 
  * @return false 
  */
-template <typename PointType>
-bool readPointCloud(const std::string filename, pcl::PointCloud<PointType> &point_cloud, unsigned short skip=1)
+bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZI> &point_cloud, unsigned short skip=1)
 {
     std::string suffix = filename.substr(filename.find_last_of('.') + 1);
     std::size_t cnt = 0;
@@ -34,27 +32,83 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<PointType> &poin
         }
         else
         {
-            while(1)
+            binfile.seekg(0, std::ios::end);
+            const auto file_size = binfile.tellg();
+            std::size_t num_points = file_size / 4; 
+            binfile.seekg(0, std::ios::beg);
+            point_cloud.reserve(num_points / skip);
+            for(std::size_t i = 0; i <= num_points - skip; i += skip)
             {
-            float s;
-            PointType point;
-            binfile.read((char*)&s,sizeof(float));
-            if(binfile.eof()) break;
-            point.x = s;
-            binfile.read((char*)&s,sizeof(float));
-            point.y = s;
-            binfile.read((char*)&s,sizeof(float));
-            point.z = s;
-            binfile.read((char*)&s,sizeof(float));
-            point.intensity = s;
-            if(++cnt % skip == 0)
+                float s;
+                pcl::PointXYZI point;
+                binfile.read((char*)&s,sizeof(float));
+                point.x = s;
+                binfile.read((char*)&s,sizeof(float));
+                point.y = s;
+                binfile.read((char*)&s,sizeof(float));
+                point.z = s;
+                binfile.read((char*)&s,sizeof(float));
+                point.intensity = s;
                 point_cloud.push_back(point);
-        }
+            }
         }
         binfile.close();
         return true;
     }else{
         throw std::invalid_argument("Error read Type, got " + suffix +" ,must be .bin or .pcd");
+        return false;
+    }
+}
+
+
+/**
+ * @brief Read point cloud into pcl::PointCloud
+ * 
+ * @param filename 
+ * @param point_cloud 
+ * @param skip read one point per "skip" points, skip=1 menas loading all points
+ * @return true 
+ * @return false 
+ */
+bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZ> &point_cloud, unsigned short skip=1)
+{
+    std::string suffix = filename.substr(filename.find_last_of('.') + 1);
+    std::size_t cnt = 0;
+    if(suffix=="pcd"){
+        pcl::io::loadPCDFile(filename, point_cloud);
+        return true;
+    }else if(suffix=="bin"){
+        std::ifstream binfile(filename.c_str(),std::ios::binary);
+        if(!binfile)
+        {
+            throw std::runtime_error("file " + filename + " cannot open");
+            return false;
+        }
+        else
+        {
+            binfile.seekg(0, std::ios::end);
+            const auto file_size = binfile.tellg();
+            std::size_t num_points = file_size / 4; 
+            binfile.seekg(0, std::ios::beg);
+            point_cloud.reserve(num_points / skip);
+            for(std::size_t i = 0; i <= num_points - skip; i += skip)
+            {
+                float s;
+                pcl::PointXYZ point;
+                binfile.read((char*)&s,sizeof(float));
+                point.x = s;
+                binfile.read((char*)&s,sizeof(float));
+                point.y = s;
+                binfile.read((char*)&s,sizeof(float));
+                point.z = s;
+                binfile.read((char*)&s,sizeof(float));
+                point_cloud.push_back(point);
+            }
+        }
+        binfile.close();
+        return true;
+    }else{
+        throw std::invalid_argument("Error read Type, got " + filename +" , its suffix must be .bin or .pcd");
         return false;
     }
 }
@@ -89,27 +143,30 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &po
         }
         else
         {
-            while(1)
+            binfile.seekg(0, std::ios::end);
+            const auto file_size = binfile.tellg();
+            std::size_t num_points = file_size / 4; 
+            binfile.seekg(0, std::ios::beg);
+            points.reserve(num_points / skip);
+            for(std::size_t i = 0; i <= num_points - skip; i += skip)
             {
-            float s;
-            Eigen::Vector3d point;
-            binfile.read((char*)&s,sizeof(float));
-            if(binfile.eof()) break;
-            point(0) = s;
-            binfile.read((char*)&s,sizeof(float));
-            point(1) = s;
-            binfile.read((char*)&s,sizeof(float));
-            point(2) = s;
-            binfile.read((char*)&s,sizeof(float));
-            // s is intensity and won't be loaded to Vector3d
-            if(++cnt % skip == 0)
+                float s;
+                Eigen::Vector3d point;
+                binfile.read((char*)&s,sizeof(float));
+                point(0) = s;
+                binfile.read((char*)&s,sizeof(float));
+                point(1) = s;
+                binfile.read((char*)&s,sizeof(float));
+                point(2) = s;
+                binfile.read((char*)&s,sizeof(float));
+                // s is intensity and won't be loaded to Vector3d
                 points.push_back(point);
-        }
+            }
         }
         binfile.close();
         return true;
     }else{
-        throw std::invalid_argument("Error read Type, got " + suffix +" ,must be .bin or .pcd");
+        throw std::invalid_argument("Error read Type, got " + filename +" , its suffix must be .bin or .pcd");
         return false;
     }
 }
@@ -144,27 +201,30 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &po
         }
         else
         {
-            while(1)
+            binfile.seekg(0, std::ios::end);
+            const auto file_size = binfile.tellg();
+            std::size_t num_points = file_size / 4; 
+            binfile.seekg(0, std::ios::beg);
+            points.reserve(num_points / skip);
+            for(std::size_t i = 0; i <= num_points - skip; i += skip)
             {
-            float s;
-            Eigen::Vector4d point;
-            binfile.read((char*)&s,sizeof(float));
-            if(binfile.eof()) break;
-            point(0) = s;
-            binfile.read((char*)&s,sizeof(float));
-            point(1) = s;
-            binfile.read((char*)&s,sizeof(float));
-            point(2) = s;
-            binfile.read((char*)&s,sizeof(float));
-            point(3) = s;
-            if(++cnt % skip == 0)
+                float s;
+                Eigen::Vector4d point;
+                binfile.read((char*)&s,sizeof(float));
+                point(0) = s;
+                binfile.read((char*)&s,sizeof(float));
+                point(1) = s;
+                binfile.read((char*)&s,sizeof(float));
+                point(2) = s;
+                binfile.read((char*)&s,sizeof(float));
+                point(3) = s;
                 points.push_back(point);
-        }
+            }
         }
         binfile.close();
         return true;
     }else{
-        throw std::invalid_argument("Error read Type, got " + suffix +" ,must be .bin or .pcd");
+        throw std::invalid_argument("Error read Type, got " + filename +" ,its sffuix must be .bin or .pcd");
         return false;
     }
 }

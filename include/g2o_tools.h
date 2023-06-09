@@ -71,7 +71,7 @@ g2o::MatrixN<3, T> skew(const g2o::VectorN<3, T> &v) {
  * @brief Template Sim3 ExpMap
  * 
  * @tparam T 
- * @param update 
+ * @param update [omega, upsilon, s]
  * @return Rotation, Translation
  */
 template <typename T>
@@ -115,7 +115,7 @@ std::tuple<g2o::MatrixN<3, T>, g2o::VectorN<3, T>, T> Sim3Exp(const T* update)
  * @brief Template SE3 ExpMap
  * 
  * @tparam T 
- * @param update 
+ * @param update [omega upsilon]
  * @return std::tuple<g2o::MatrixN<3, T>, g2o::VectorN<3, T> > 
  */
 template <typename T>
@@ -186,9 +186,9 @@ std::map<std::string, double> g2oLogEdges(const g2o::SparseOptimizer &optimizer)
     int N = chiList.size();
     std::sort(chiList.begin(),chiList.end());
     info["Min"] = chiList[0];
-    info["Q25"] = chiList[(int)(0.25*N)];
-    info["Q50"] = chiList[(int)(0.5*N)];
-    info["Q75"] = chiList[(int)(0.75*N)];
+    info["Q25"] = chiList[(int)(0.25*N)-1];
+    info["Q50"] = chiList[(int)(0.5*N)]-1;
+    info["Q75"] = chiList[(int)(0.75*N)-1];
     info["Max"] = chiList[N-1];
     info["Mean"] = chiMean/N;
     return info;

@@ -19,7 +19,7 @@ void TransformPointCloudInplace(VecVector3d &pointCloud, const Eigen::Matrix4d &
         pointCloud[i] = transformation.topLeftCorner(3, 3) * pointCloud[i] + transformation.topRightCorner(3, 1);
 }
 
-void TransformaPointCloud(const VecVector3d &srcPointCloud, VecVector3d &tgtPointCloud, const Eigen::Isometry3d &transformation){
+void TransformPointCloud(const VecVector3d &srcPointCloud, VecVector3d &tgtPointCloud, const Eigen::Isometry3d &transformation){
     tgtPointCloud.resize(srcPointCloud.size());
     for(std::size_t i = 0; i<srcPointCloud.size(); ++i)
         tgtPointCloud[i] = transformation * srcPointCloud[i];
