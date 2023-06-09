@@ -1,20 +1,22 @@
 {
     "version": "0.2.0",
+    "environment": [
+        {
+            "LD_LIBRARY_PATH": ""
+        }
+    ],
     "configurations": [
         {
             "name": "(gdb) 启动",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/floam_backend",
+            "program": "${workspaceFolder}/build/iba_calib_test",
             "args": [
-                "${workspaceFolder}/floam_raw_00.txt",
-                "${workspaceFolder}/data/00/velodyne/",
-                "${workspaceFolder}/floam_opt_00.json",
-                "${workspaceFolder}/floam_opt_00.txt",
+                "${workspaceFolder}/config/calib/iba_calib_plane.yml",
             ],
             "stopAtEntry": false,
-            "cwd": "${fileDirname}",
-            "environment": [],
+            "cwd": "${workspaceFolder}/build/",
+            
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [

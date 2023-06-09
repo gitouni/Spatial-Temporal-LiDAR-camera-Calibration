@@ -7,7 +7,9 @@
                 "${workspaceFolder}/include",
                 "/usr/include/eigen3",
                 "/usr/include/opencv4",
-                "/usr/include/pcl-1.10"
+                "/usr/include/pcl-1.10",
+                "/data/Pacakge/nomad/build/release/include/nomad",
+                "/data/Pacakge/nomad/src",
                 // "/home/bit/.local/lib/python3.8/site-packages/pybind11/include",
                 // "/usr/include/python3.8"
             ],
