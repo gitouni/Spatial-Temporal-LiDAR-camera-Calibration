@@ -169,13 +169,20 @@ public:
         NOMAD::Evaluator(evalParams, NOMAD::EvalType::BB), KeyFrames(_KeyFrames), iba_params(_iba_params)
         {
             PointClouds.reserve(_PointCloudFiles.size());
+            int numFiles = 0;
+            #pragma omp parallel for schedule(static)
             for(std::size_t i = 0; i < _PointCloudFiles.size(); ++i)
             {
                 VecVector3d PointCloud;
                 readPointCloud(_PointCloudFiles[i], PointCloud);
                 PointClouds.push_back(std::move(PointCloud));
-                if(iba_params.verborse && i % 100 == 0)
-                    std::printf("Read %0.2lf %% PointClouds\n", 100.0*(i+1)/_PointCloudFiles.size());
+                #pragma omp critical
+                {
+                    numFiles++;
+                    if(iba_params.verborse && numFiles % 100 == 0)
+                        std::printf("Read %0.2lf %% PointClouds\n", 100.0*numFiles/_PointCloudFiles.size());
+                }
+                
             }
         }
     ~BALoss(){}

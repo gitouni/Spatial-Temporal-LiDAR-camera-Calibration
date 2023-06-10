@@ -9,9 +9,10 @@
 #include "io_tools.h"
 #include "kitti_tools.h"
 #include "pointcloud.h"
-#include "IBACalib.hpp"
+#include "IBACalib2.hpp"
 #include <mutex>
-#include <set>
+#include <unordered_set>
+#include <omp.h>
 
 typedef std::uint32_t IndexType; // other types cause error, why?
 typedef std::vector<IndexType> VecIndex;
@@ -19,8 +20,7 @@ typedef std::pair<IndexType, IndexType> CorrType;
 typedef std::vector<CorrType> CorrSet;
 typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector2d, double, 2, nanoflann::metric_L2_Simple, IndexType> KDTree2D;
 typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector3d, double, 3, nanoflann::metric_L2_Simple, IndexType> KDTree3D;
-typedef g2o::BlockSolver<g2o::BlockSolverTraits<7, 1>> BlockSolverType; // the second template parameter is not used unless Schur Complement is used
-typedef g2o::LinearSolverCholmod<BlockSolverType::PoseMatrixType> LinearSolverType; // Linear Solver Type
+
 
 class IBAPlaneParams{
 public:
@@ -130,41 +130,53 @@ std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, 
     }
     return {normals, valid_indices};
 }
-
-void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames,
-    const g2o::Vector7 &init_sim3_log , g2o::SparseOptimizer &optimizer, const IBAPlaneParams &params)
+void initInput(double* params, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames, const g2o::Vector7& init_sim3_log, std::unordered_map<int, int> &KFIdMap)
 {
+    KFIdMap.reserve(KeyFrames.size());
+    std::copy(init_sim3_log.data(), init_sim3_log.data()+7, params);
+    int posei = 0;
+    for(auto &pKF:KeyFrames)
+    {
+        cv::Mat pose = pKF->GetPose();
+        Eigen::Matrix4d poseEigen;
+        cv::cv2eigen(pose, poseEigen);
+        g2o::Vector6 se3_log = SE3log<double>(poseEigen.topLeftCorner(3, 3), poseEigen.topRightCorner(3, 1));
+        std::copy(se3_log.data(), se3_log.data() + 6, params + 7 + posei*6);
+        KFIdMap.insert(std::make_pair(int(pKF->mnId), posei));
+        posei += 1;
+    }
+}
+
+
+void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames,
+    const std::unordered_map<int, int> &KFIdMap, double* params, ceres::Problem &problem, const IBAPlaneParams &iba_params)
+{
+    
     int cnt = 0;
     int edge_cnt = 0;
-    optimizer.clear();
-    VertexSim3* v = new VertexSim3();
-    v->setEstimate(init_sim3_log);
-    v->setId(0);
-    optimizer.addVertex(v);
+    double* const pose = params + 7;  // pose pointer position
     Eigen::Matrix3d init_rotation;
     Eigen::Vector3d init_translation;
     double init_scale;
-    std::tie(init_rotation, init_translation, init_scale) = Sim3Exp<double>(init_sim3_log.data());
+    std::tie(init_rotation, init_translation, init_scale) = Sim3Exp<double>(params);
     Eigen::Matrix4d initSE3_4x4(Eigen::Matrix4d::Identity());
     initSE3_4x4.topLeftCorner(3, 3) = init_rotation;
     initSE3_4x4.topRightCorner(3, 1) = init_translation;
     Eigen::Isometry3d initSE3;
     initSE3.matrix() = initSE3_4x4;
-    std::mutex EdgeMutex;
-    #pragma parallel for schedule(static)
-    for(auto pair_it = std::make_pair(PointCloudFiles.begin(), KeyFrames.begin());
-        pair_it.first != PointCloudFiles.end() && pair_it.second != KeyFrames.end(); pair_it.first++, pair_it.second++)
+    #pragma omp parallel for schedule(static) reduction(+:cnt)
+    for(std::size_t Fi = 0; Fi < PointClouds.size(); ++Fi)
     {
-        VecVector3d points, normals;
-        readPointCloud(*(pair_it.first), points);
-        ORB_SLAM2::KeyFrame* pKF = *(pair_it.second);
+        VecVector3d points = PointClouds[Fi];  // copy
+        VecVector3d normals;
+        ORB_SLAM2::KeyFrame* pKF = KeyFrames[Fi];
         const double H = pKF->mnMaxY, W = pKF->mnMaxX;
         TransformPointCloudInplace(points, initSE3); // Transfer to Camera coordinate
         CorrSet corrset; // pair of (idx of image points, idx of pointcloud points)
-        FindProjectCorrespondences(points, pKF, params.kdtree2d_max_leaf_size, params.max_pixel_dist, corrset);
+        FindProjectCorrespondences(points, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
         if(corrset.size() < 50)
             continue;
-        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames = pKF->GetBestCovisibilityKeyFramesSafe(10);  // for debug
+        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);  // for debug
         std::vector<std::map<int, int>> KptMapList; // Keypoint-Keypoint Corr
         std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
         std::set<int> srcKptIndices;  // Matched Keypoints in the Reference KeyFrame
@@ -190,7 +202,7 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
             if(srcKptIndices.count(corr.first) > 0)  // Lidar-Keypoint corr in Keypoint-Keypoint corr
                 indices.push_back(corr.second);
         }
-        std::tie(normals, subindices) = ComputeLocalNormal(points, indices, params.norm_radius, params.kdtree3d_max_leaf_size, params.norm_max_pts);
+        std::tie(normals, subindices) = ComputeLocalNormal(points, indices, iba_params.norm_radius, iba_params.kdtree3d_max_leaf_size, iba_params.norm_max_pts);
         
         for(std::size_t sub_idx = 0; sub_idx < subindices.size(); ++ sub_idx)
         {
@@ -203,8 +215,9 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
             Eigen::Vector3d p0 = initSE3.inverse() * points[point3d_idx];  // cooresponding point (LiDAR coord)
             Eigen::Vector3d n0 = initSE3_4x4.topLeftCorner(3, 3).transpose() * normals[sub_idx];  // cooresponding point normal (LiDAR coord)
             std::vector<double> u1_list, v1_list;
-            std::vector<Eigen::Matrix3d> R_list;
-            std::vector<Eigen::Vector3d> t_list;
+            std::vector<double*> param_blocks;
+            param_blocks.push_back(params); // extrinsic log
+            param_blocks.push_back(params + 7 + 6*Fi); // Reference Pose
             for(std::size_t pKFConvi = 0; pKFConvi < ConvisKeyFrames.size(); ++pKFConvi){
                 auto pKFConv = ConvisKeyFrames[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
@@ -216,36 +229,29 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
                 Eigen::Matrix4d relPose = relPoseList[pKFConvi];  // Twc2 * inv(Twc1)
                 u1_list.push_back(u1);
                 v1_list.push_back(v1);
-                R_list.push_back(relPose.topLeftCorner(3, 3));
-                t_list.push_back(relPose.topRightCorner(3, 1));             
-                
+                int ConvFi = KFIdMap.at(pKFConv->mnId);
+                param_blocks.push_back(params + 7 + 6*ConvFi);
             }
-            int ErrorDim = u1_list.size();
-            if(ErrorDim == 0)
+            if(u1_list.size() == 0)
                 continue; // Should Not Run into
-            IBAPlaneEdge* e = new IBAPlaneEdge(pKF->fx, pKF->fy, pKF->cx, pKF->cy,
-             u0, v0, u1_list, v1_list,
-             p0, n0, R_list, t_list);
-            e->setId(edge_cnt++);
-            e->setVertex(0, v);
-            g2o::MatrixN<20> I;
-            I.setIdentity();
-            e->setInformation(I / double(ErrorDim));
-            g2o::RobustKernelHuber* rk(new g2o::RobustKernelHuber);
-            rk->setDelta(params.robust_kernerl_delta);
-            e->setRobustKernel(rk);
-            optimizer.addEdge(e);
+            ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernerl_delta * u1_list.size());
+            ceres::CostFunction *cost_function = UIBA_PlaneFactor::Create(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0,
+                u1_list, v1_list, p0, n0);
+            problem.AddResidualBlock(cost_function, loss_function, param_blocks);
+            ++edge_cnt;  // valid factor count
         }
-        ++cnt;
-        if(params.verborse && (cnt % 100 == 0)){
-            std::unique_lock<std::mutex> lock(EdgeMutex);
-            char msg[100];
-            sprintf(msg, "Optimizer Building: %0.2lf %% finished (%d item %d edges)", (100.0*cnt)/PointCloudFiles.size(),cnt, edge_cnt);
-            std::cout << msg << std::endl;
+        ++cnt; // total iterations
+        #pragma omp critical
+        {
+            if(iba_params.verborse && (cnt % 100 == 0)){
+                char msg[80];
+                std::sprintf(msg, "Problem Building: %0.2lf %% finished (%d iters | %d factors)", (100.0*cnt)/PointClouds.size(),cnt, edge_cnt);
+                std::cout << msg << std::endl;
+            }
         }
     }
-    if(params.verborse)
-        std::cout << "" << edge_cnt << " edges has been added." << std::endl;
+    if(iba_params.verborse)
+        std::cout << "" << edge_cnt << " factors has been added." << std::endl;
 }
 
 
@@ -263,7 +269,7 @@ int main(int argc, char** argv){
     std::string pointcloud_dir = io_config["PointCloudDir"].as<std::string>();
     checkpath(base_dir);
     checkpath(pointcloud_dir);
-    std::vector<std::string> RawPointCloudFiles, PointCloudFiles;
+    std::vector<std::string> RawPointCloudFiles;
     listdir(RawPointCloudFiles, pointcloud_dir);
     std::vector<Eigen::Isometry3d> vTwc, vTwl, vTwlraw;
     // IO Config
@@ -279,27 +285,38 @@ int main(int argc, char** argv){
     checkpath(ORBKeyFrameDir);
     const std::string ORBMapFile = orb_config["MapFile"].as<std::string>();
     // runtime config
-    IBAPlaneParams params;
-    params.max_pixel_dist = runtime_config["max_pixel_dist"].as<double>();
-    params.min_covis_weight = runtime_config["min_covis_weight"].as<int>();
-    params.kdtree2d_max_leaf_size = runtime_config["kdtree2d_max_leaf_size"].as<int>();
-    params.kdtree3d_max_leaf_size = runtime_config["kdtree3d_max_leaf_size"].as<int>();
-    params.norm_radius = runtime_config["norm_radius"].as<double>();
-    params.norm_max_pts = runtime_config["norm_max_pts"].as<int>();
-    params.sq_err_threshold = runtime_config["sq_err_threshold"].as<double>();
-    params.robust_kernerl_delta = runtime_config["robust_kernerl_delta"].as<double>();
+    IBAPlaneParams iba_params;
+    iba_params.max_pixel_dist = runtime_config["max_pixel_dist"].as<double>();
+    iba_params.min_covis_weight = runtime_config["min_covis_weight"].as<int>();
+    iba_params.kdtree2d_max_leaf_size = runtime_config["kdtree2d_max_leaf_size"].as<int>();
+    iba_params.kdtree3d_max_leaf_size = runtime_config["kdtree3d_max_leaf_size"].as<int>();
+    iba_params.norm_radius = runtime_config["norm_radius"].as<double>();
+    iba_params.norm_max_pts = runtime_config["norm_max_pts"].as<int>();
+    iba_params.sq_err_threshold = runtime_config["sq_err_threshold"].as<double>();
+    iba_params.robust_kernerl_delta = runtime_config["robust_kernerl_delta"].as<double>();
     const int max_iba_iter = runtime_config["max_iba_iter"].as<int>();
     const int inner_iba_iter = runtime_config["inner_iba_iter"].as<int>();
-    params.verborse = runtime_config["verborse"].as<bool>();
+    iba_params.verborse = runtime_config["verborse"].as<bool>();
 
     YAML::Node FrameIdCfg = YAML::LoadFile(KyeFrameIdFile);
     std::vector<int> vKFFrameId = FrameIdCfg["mnFrameId"].as<std::vector<int>>();
     // Pre-allocate memory to enhance peformance
-
-    PointCloudFiles.reserve(vKFFrameId.size());
-    for(auto &KFId:vKFFrameId)
+    std::vector<VecVector3d> PointClouds;
+    PointClouds.resize(vKFFrameId.size());
+    std::size_t KFcnt = 0;
+    #pragma omp parallel for schedule(static)
+    for(std::size_t i = 0; i < vKFFrameId.size(); ++i)
     {
-        PointCloudFiles.push_back(pointcloud_dir + RawPointCloudFiles[KFId]);
+        auto KFId = vKFFrameId[i];
+        VecVector3d PointCloud;
+        readPointCloud(pointcloud_dir + RawPointCloudFiles[KFId], PointCloud);
+        PointClouds[i] = std::move(PointCloud);
+        #pragma critical
+        {
+            KFcnt++;
+            if(iba_params.verborse && (KFcnt) % 100 ==0)
+                std::printf("Read PointCloud %0.2lf %%\n", 100.0*(KFcnt)/vKFFrameId.size());
+        }
     }
     RawPointCloudFiles.clear(); 
 
@@ -315,38 +332,35 @@ int main(int argc, char** argv){
     std::cout << "Rotation:\n" << rigid.topLeftCorner(3, 3) << std::endl;
     std::cout << "Translation: " << rigid.topRightCorner(3, 1).transpose() << std::endl;
     std::cout << "Scale: " << scale << std::endl;
-    auto solver = new g2o::OptimizationAlgorithmDogleg(
-        g2o::make_unique<BlockSolverType>(g2o::make_unique<LinearSolverType>()));
-    g2o::SparseOptimizer optimizer;     // 图模型
-    optimizer.setAlgorithm(solver);   // 设置求解器
-    optimizer.setVerbose(params.verborse);       // 打开调试输出
-    bool multithread_flag = optimizer.initMultiThreading();
-    if(!multithread_flag)
-        std::cerr << "use multithread for g2o failed!" << std::endl;
-    g2o::SE3Quat quat(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1));
-    g2o::Vector7 sim3_log;
-    sim3_log.head<6>() = quat.log();
-    sim3_log(6) = scale;
+    g2o::Vector7 init_sim3_log = Sim3log<double>(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1), scale);
+    std::unordered_map<int, int> KFIdMap;
+    double params[7 + 6 * KeyFrames.size()];
+    
+    initInput(params, KeyFrames, init_sim3_log, KFIdMap);
     Eigen::Matrix3d optimizedRotation; Eigen::Vector3d optimizedTranslation; double optimizedScale;
     for(int iba_iter = 0; iba_iter < max_iba_iter; ++ iba_iter)
     {
-        BuildOptimizer(PointCloudFiles, KeyFrames, sim3_log, optimizer, params);
-        optimizer.initializeOptimization(0);
-        optimizer.optimize(inner_iba_iter);
-        const VertexSim3* v = dynamic_cast<VertexSim3*>(optimizer.vertex(0));
-        sim3_log = v->estimate();
-        if(params.verborse)
+        ceres::Solver::Options options;
+        options.max_num_iterations = 30;
+        options.minimizer_progress_to_stdout = true;
+        options.num_threads = omp_get_max_threads(); // use all threads
+        options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
+        options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
+        ceres::Problem problem;
+        BuildProblem(PointClouds, KeyFrames, KFIdMap, params, problem, iba_params);
+        ceres::Solver::Summary summary;
+        ceres::Solve(options, &problem, &summary);
+
+        if(iba_params.verborse)
         {
-            std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(sim3_log.data());
-            std::cout << "IBA iter = " << iba_iter << std::endl;
+            std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(params);
+            std::cout << "IBA iter = \033[33;1m" << iba_iter << "\033[0m" << std::endl;
             std::cout << "Rotation:\n" << optimizedRotation << std::endl;
             std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;
             std::cout << "Scale: " << optimizedScale << std::endl;
-            auto logger = g2oLogEdges<IBAPlaneEdge>(optimizer);
-            print_map("Statics of Edge Error", logger);
         }
     }
-    std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(sim3_log.data());
+    std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(params);
     std::cout << "Final Result: " << std::endl;
     std::cout << "Rotation:\n" << optimizedRotation << std::endl;
     std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;
