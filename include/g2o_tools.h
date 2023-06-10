@@ -67,8 +67,62 @@ g2o::MatrixN<3, T> skew(const g2o::VectorN<3, T> &v) {
     return m;
 }
 
+template <typename T>
+g2o::VectorN<3,T> deltaR(const g2o::MatrixN<3, T>& R) {
+  g2o::VectorN<3,T>  v;
+  v(0) = R(2, 1) - R(1, 2);
+  v(1) = R(0, 2) - R(2, 0);
+  v(2) = R(1, 0) - R(0, 1);
+  return v;
+}
+
+template <typename T>
+g2o::VectorN<6, T> SE3log(g2o::MatrixN<3, T> _R, g2o::VectorN<3, T> _t)
+{
+    g2o::VectorN<6, T> res;
+    T d = T(0.5) * (_R(0, 0) + _R(1, 1) + _R(2, 2) - 1);
+    g2o::VectorN<3, T> omega, upsilon;
+    g2o::VectorN<3, T> dR = deltaR<T>(_R);
+    g2o::MatrixN<3, T> V_inv;
+
+    if (abs(d) > T(0.99999)) {
+      omega = T(0.5) * dR;
+      g2o::MatrixN<3, T> Omega = skew<T>(omega);
+      V_inv = g2o::MatrixN<3, T>::Identity() - T(0.5) * Omega +
+              (T(1.) / T(12.)) * (Omega * Omega);
+    } else {
+      T theta = acos(d);
+      omega = theta / (2 * sqrt(1 - d * d)) * dR;
+      g2o::MatrixN<3, T> Omega = skew<T>(omega);
+      V_inv = (g2o::MatrixN<3, T>::Identity() - T(0.5) * Omega +
+               (T(1) - theta / (T(2) * tan(theta / T(2)))) / (theta * theta) *
+                   (Omega * Omega));
+    }
+
+    upsilon = V_inv * _t;
+    for (int i = 0; i < 3; i++) {
+      res[i] = omega[i];
+    }
+    for (int i = 0; i < 3; i++) {
+      res[i + 3] = upsilon[i];
+    }
+
+    return res;
+}
+
+template <typename T>
+g2o::VectorN<7, T> Sim3log(g2o::MatrixN<3, T> _R, g2o::VectorN<3, T> _t, T scale)
+{
+    g2o::VectorN<7, T> res;
+    g2o::VectorN<6, T> se3_log = SE3log<T>(_R, _t);
+    for(int i = 0; i < 6; ++i)
+        res[i] = se3_log[i];
+    res[6] = scale;
+    return res;
+}
+
 /**
- * @brief Template Sim3 ExpMap
+ * @brief Template Sim3 ExpMap (only used first 7 params)
  * 
  * @tparam T 
  * @param update [omega, upsilon, s]
@@ -112,7 +166,7 @@ std::tuple<g2o::MatrixN<3, T>, g2o::VectorN<3, T>, T> Sim3Exp(const T* update)
 }
 
 /**
- * @brief Template SE3 ExpMap
+ * @brief Template SE3 ExpMap (only used first 6 params)
  * 
  * @tparam T 
  * @param update [omega upsilon]

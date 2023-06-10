@@ -13,17 +13,20 @@ public:
      const Eigen::Vector3d &_p0, const Eigen::Vector3d &_n0):
      fx(_fx), fy(_fy), cx(_cx), cy(_cy),
      u0(_u0), v0(_v0), u1_list(_u1_list), v1_list(_v1_list),
-     p0(_p0), n0(_n0), Npose(u1_list.size()){};
+     p0(_p0), n0(_n0), NConv(_u1_list.size())
+     {};
     
 
     template <typename T>
     bool operator()(T const* const* data, T* error) const{
+        T const* calib_sim3 = data[0];
+        T const* refpose = data[1];
         MatrixN<3, T> _Rcl, _Rref;
         VectorN<3, T> _tcl, _tref;
         MatrixN<4, T> _InvRefPose;
         T _s;
-        std::tie(_Rcl, _tcl, _s) = Sim3Exp<T>(data[0]); // data[0] stores the Lie Algebra of Extrinsic Matrix
-        std::tie(_Rref, _tref) = SE3Exp<T>(data[1]);  // data[1] stores the Lie Algebra of Camera Reference Pose
+        std::tie(_Rcl, _tcl, _s) = Sim3Exp<T>(calib_sim3); // data[0] stores the Lie Algebra of Extrinsic Matrix
+        std::tie(_Rref, _tref) = SE3Exp<T>(refpose);  // data[1] stores the Lie Algebra of Camera Reference Pose
         _InvRefPose.setIdentity();
         _InvRefPose.topLeftCorner(3, 3) = _Rref.transpose();
         _InvRefPose.topRightCorner(3, 1) = -_Rref.transpose() * _tref;
@@ -32,7 +35,7 @@ public:
         VectorN<3, T> _n0 = n0.cast<T>();
         const int N = u1_list.size();
         
-        for(int i = 0; i < Npose; ++i)
+        for(int i = 0; i < NConv; ++i)
         {
             MatrixN<3, T> _R;
             VectorN<3, T> _t;
@@ -63,7 +66,7 @@ public:
         return true;
     }
         /**
-     * @brief Input data List: extrinsic (6), refPose (6), Pose1 (6), .... ,PoseK(6) (must corresponding to _u1_list).
+     * @brief parameter blocks: extrinsic (7), refPose (6), Pose1 (6), .... ,PoseK(6) (must corresponding to _u1_list).
      * The numResiduals will be automatically set according to the size of _u1_list
      * 
      * @param _fx intrinsic focal length x
@@ -84,6 +87,9 @@ public:
         ceres::DynamicAutoDiffCostFunction<UIBA_PlaneFactor, 6> *cost_func = new ceres::DynamicAutoDiffCostFunction<UIBA_PlaneFactor, 6>(
             new UIBA_PlaneFactor(_fx, _fy, _cx, _cy, _u0, _v0, _u1_list, _v1_list, _p0, _n0));
         cost_func->SetNumResiduals(2*_u1_list.size());
+        cost_func->AddParameterBlock(7);
+        for(int i = 0; i < _u1_list.size() + 1; ++ i)
+            cost_func->AddParameterBlock(6);
         return cost_func;
     }
 private:
@@ -91,7 +97,7 @@ private:
     const std::vector<double> v1_list, u1_list;
     const Eigen::Vector3d p0;
     const Eigen::Vector3d n0;
-    const int Npose;
+    const int NConv;
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -105,16 +111,17 @@ public:
     UIBA_GPRFactor(const double &_sigma, const double &_l, const double _sigma_noise,
      const std::vector<Eigen::Vector3d> &_neigh_pts,
      const double &_fx, const double &_fy, const double &_cx, const double &_cy,
-     const double &_u0, const double &_v0, const std::vector<double> &_u1_list, const std::vector<double> &_v1_list,
+     const double &_u0, const double &_v0, const std::vector<double> &_u1_list,
+     const std::vector<double> &_v1_list, const std::vector<int> &_PoseId,
      const bool _optimize=false, const bool _verborse=false,
      const Eigen::Vector2d &_lb=(Eigen::Vector2d() << 1e-3, 1e-3).finished(),
      const Eigen::Vector2d &_ub=(Eigen::Vector2d() << 1e3, 1e3).finished()):
      sigma(_sigma), l(_l), sigma_noise(_sigma_noise), neigh_pts(_neigh_pts),
      fx(_fx), fy(_fy), cx(_cx), cy(_cy),
      u0(_u0), v0(_v0), u1_list(_u1_list), v1_list(_v1_list),
-     Npose(u1_list.size())
+     NConv(u1_list.size()), PoseId(_PoseId)
      {
-        assert(Npose > 0);
+        assert(_PoseId.size() == u1_list.size() + 1);
         if(!_optimize)
             return;
         GPRParams gpr_params;
@@ -149,12 +156,14 @@ public:
 
     template <typename T>
     bool operator()(T const* const* data, T* error) const{
+        T const* calib_sim3 = data[0];
+        T const* refpose = data[PoseId[0]];
         MatrixN<3, T> _Rcl, _Rref;
         VectorN<3, T> _tcl, _tref;
         MatrixN<4, T> _InvRefPose;
         T _s;
-        std::tie(_Rcl, _tcl, _s) = Sim3Exp<T>(data[0]); // data[0] stores the Lie Algebra of Extrinsic Matrix
-        std::tie(_Rref, _tref) = SE3Exp<T>(data[1]);  // data[1] stores the Lie Algebra of Camera Reference Pose
+        std::tie(_Rcl, _tcl, _s) = Sim3Exp<T>(calib_sim3); // data[0] stores the Lie Algebra of Extrinsic Matrix
+        std::tie(_Rref, _tref) = SE3Exp<T>(refpose);  // data[1] stores the Lie Algebra of Camera Reference Pose
         _InvRefPose.setIdentity();
         _InvRefPose.topLeftCorner(3, 3) = _Rref.transpose();
         _InvRefPose.topRightCorner(3, 1) = -_Rref.transpose() * _tref;
@@ -179,11 +188,11 @@ public:
         _P0(0) = _test_z * (_u0 - _cx) / _fx;
         _P0(0) = _test_z * (_v0 - _cy) / _fy;
         _P0(0) = _test_z;
-        for(int i = 0; i < Npose; ++i)
+        for(int i = 0; i < NConv; ++i)
         {
             MatrixN<3, T> _R;
             VectorN<3, T> _t;
-            std::tie(_R, _t) = SE3Exp<T>(data[i+2]);
+            std::tie(_R, _t) = SE3Exp<T>(data[PoseId[i+1]]);
             MatrixN<4, T> _Pose;
             _Pose.setIdentity();
             _Pose.topLeftCorner(3, 3) = _R;
@@ -201,7 +210,7 @@ public:
     }
 
     /**
-     * @brief Input data List: extrinsic (6), refPose (6), Pose1 (6), .... ,PoseK(6) (must corresponding to _u1_list).
+     * @brief parameter blocks: extrinsic (7), refPose (6), Pose1 (6), .... ,PoseK(6) (must corresponding to _u1_list).
      * The numResiduals will be automatically set according to the size of _u1_list
      * 
      * @param _sigma hyperparamter 1: Amplitude of RBF Kernel
@@ -225,14 +234,16 @@ public:
     static ceres::CostFunction *Create(const double &_sigma, const double &_l, const double _sigma_noise,
         const std::vector<Eigen::Vector3d> &_neigh_pts,
         const double &_fx, const double &_fy, const double &_cx, const double &_cy,
-        const double &_u0, const double &_v0, const std::vector<double> &_u1_list, const std::vector<double> &_v1_list,
+        const double &_u0, const double &_v0, 
+        const std::vector<double> &_u1_list, const std::vector<double> &_v1_list,
+        const std::vector<int> &_PoseId,
         const bool _optimize=false, const bool _verborse=false,
         const Eigen::Vector2d &_lb=(Eigen::Vector2d() << 1e-3, 1e-3).finished(),
         const Eigen::Vector2d &_ub=(Eigen::Vector2d() << 1e3, 1e3).finished())
      {
         ceres::DynamicAutoDiffCostFunction<UIBA_GPRFactor, 6> *cost_func = new ceres::DynamicAutoDiffCostFunction<UIBA_GPRFactor, 6>(
             new UIBA_GPRFactor(_sigma, _l, _sigma_noise, _neigh_pts, _fx, _fy, _cx, _cy,
-            _u0, _v0, _u1_list, _v1_list, _optimize, _verborse, _lb, _ub
+            _u0, _v0, _u1_list, _v1_list, _PoseId, _optimize, _verborse, _lb, _ub
         ));
         cost_func->SetNumResiduals(2*_u1_list.size());
         return cost_func;
@@ -243,7 +254,8 @@ private:
     const std::vector<double> u1_list, v1_list;
     const std::vector<Eigen::Vector3d> neigh_pts;
     double sigma, l, sigma_noise; // We have NOT added hyperparamter adaptation during Edge Optimization YET
-    const int Npose;
+    const int NConv;
+    const std::vector<int> PoseId;
 
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
