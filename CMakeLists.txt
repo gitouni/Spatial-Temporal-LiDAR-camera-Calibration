@@ -17,12 +17,16 @@ add_subdirectory(src/scancontext)
 
 # g2o
 set(g2o_DIR "/usr/local/lib")
-set(GLOG_LIBRARY_DIR /usr/local/lib/libglog.so)
+set(NOMAD_LIB_DIRS
+"/data/Pacakge/nomad/build/release/lib"
+"/data/Pacakge/nomad/src")
+set(NOMAD_INCLUDE_DIR "/data/Pacakge/nomad/build/release/include/nomad")
+set(GLOG_LIB /usr/local/lib/libglog.so)
 set(YAML_CPP_LIB /usr/local/lib/libyaml-cpp.so)
 link_libraries(${YAML_CPP_LIB})
 include_directories(${G2O_INCLUDE_DIRS} "/usr/include/eigen3")
-link_directories(${g2o_DIR})
-set (G2O_LIBS
+link_directories(${g2o_DIR} ${NOMAD_LIB_DIRS})
+set(G2O_LIBS
 g2o_csparse_extension
 g2o_core 
 g2o_solver_cholmod
@@ -35,9 +39,11 @@ g2o_types_sba
 g2o_types_sim3
 g2o_types_slam2d
 g2o_types_slam3d)
-# NLOpt
-find_package(NLopt REQUIRED)
-set (NLOPT_LIB nlopt_cxx)
+set(NOMAD_LIBS
+nomadAlgos
+nomadUtils 
+nomadEval
+)
 # OpenCV
 find_package(OpenCV 4 REQUIRED)
 # Eigen3
@@ -76,7 +82,7 @@ add_executable(ba_demo_data src/ba_demo_data.cpp)
 target_link_libraries(ba_demo_data
 ${OpenCV_LIBS}
 ${G2O_LIBS}
-${GLOG_LIBRARY_DIR}  # ??
+${GLOG_LIB}  # ??
 )
 
 add_library(backend SHARED src/backend_opt.cpp)
@@ -112,7 +118,7 @@ ${EIGEN3_LIBS}
 ${Pangolin_LIBRARIES}
 ${G2O_LIBS}
 ${PROJECT_SOURCE_DIR}/lib/libORB_SLAM2.so
-${GLOG_LIBRARY_DIR}  # ??
+${GLOG_LIB}  # ??
 )
 
 set(FLOAM_LIBRARIES
@@ -181,9 +187,32 @@ target_link_libraries(ba_calib
 ${ORB_LIBARIES}
 )
 
+
+
+add_executable(he_calib src/examples/he_calib.cpp)
+target_link_libraries(
+  he_calib
+  ${EIGEN3_LIBS}
+  ${G2O_LIBS}
+  ${GLOG_LIB} 
+)
+
 add_executable(icp_calib src/examples/icp_calib.cpp)
 target_link_libraries(icp_calib
 ${Open3D_LIBRARIES}
+)
+
+
+add_executable(iba_calib_test src/examples/iba_calib_test.cpp)
+add_dependencies(iba_calib_test ORB_SLAM2)
+target_link_libraries(iba_calib_test
+${ORB_LIBARIES}
+${PCL_LIBRARIES}
+${G2O_LIBS}
+${GLOG_LIB} 
+)
+target_include_directories(iba_calib_test PRIVATE 
+${ORB_INCLUDE_DIRS}
 )
 
 add_executable(iba_calib_plane src/examples/iba_calib_plane.cpp)
@@ -192,15 +221,24 @@ target_link_libraries(iba_calib_plane
 ${ORB_LIBARIES}
 ${PCL_LIBRARIES}
 ${G2O_LIBS}
-${GLOG_LIBRARY_DIR} 
+${GLOG_LIB} 
+${CERES_LIBRARIES}
 )
 target_include_directories(iba_calib_plane PRIVATE 
 ${ORB_INCLUDE_DIRS}
+${CERES_INCLUDE_DIRS}
 )
-add_executable(he_calib src/examples/he_calib.cpp)
-target_link_libraries(
-  he_calib
-  ${EIGEN3_LIBS}
-  ${G2O_LIBS}
-  ${GLOG_LIBRARY_DIR} 
+
+add_executable(iba_global src/examples/iba_global.cpp)
+add_dependencies(iba_global ORB_SLAM2)
+target_link_libraries(iba_global
+${ORB_LIBARIES}
+${PCL_LIBRARIES}
+${G2O_LIBS}
+${GLOG_LIB}
+${NOMAD_LIBS}
+)
+target_include_directories(iba_global PUBLIC 
+${ORB_INCLUDE_DIRS}
+${NOMAD_INCLUDE_DIR}
 )
