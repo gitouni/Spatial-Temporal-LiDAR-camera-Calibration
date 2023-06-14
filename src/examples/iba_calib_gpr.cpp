@@ -35,6 +35,8 @@ public:
     double robust_kernerl_delta = 2.98;
     double init_sigma = 10.;
     double init_l = 10.;
+    double sigma_noise = 1e-10;
+    bool optimize = true;
     bool verborse = true;
 };
 
@@ -87,23 +89,21 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
  * @brief Compute normal of each point in points indexed by indices
  * 
  * @param points the whole point cloud
- * @param indices indices of selected points
+ * @param kdtree KDTree built with point cloud (Lidar Coord)
+ * @param querys indices of selected points
  * @param radius radius to compute point covariance
- * @param max_leaf_size max leaf size of kdtree
  * @param max_pts max points of neighbours
- * @return std::tuple<VecVector3d, VecIndex> 
+ * @return std::tuple<VecVector3d, VecIndex>  valid normals, valid indices of querys
  */
-std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, const VecIndex &indices,
-    const double radius, const int max_leaf_size, const int max_pts)
+std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, const KDTree3D* kdtree, const VecIndex &querys,
+    const double radius, const int max_pts)
 {
-    // std::unique_ptr<KDTree3D> kdtree(new KDTree3D(3, points, max_leaf_size));
-    std::unique_ptr<KDTree3D> kdtree(new KDTree3D(3, points, max_leaf_size));
     VecVector3d normals;
     VecIndex valid_indices;
-    normals.reserve(indices.size());
-    valid_indices.reserve(indices.size());
-    for (std::size_t i = 0; i < indices.size(); ++i){
-        const IndexType idx = indices[i];
+    normals.reserve(querys.size());
+    valid_indices.reserve(querys.size());
+    for (std::size_t i = 0; i < querys.size(); ++i){
+        const IndexType idx = querys[i];
         VecIndex indices(max_pts);
         std::vector<double> sq_dist(max_pts);
         nanoflann::KNNResultSet<double, IndexType> resultSet(max_pts);
@@ -131,6 +131,48 @@ std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, 
     }
     return {normals, valid_indices};
 }
+
+
+/**
+ * @brief Compute neighbors of of each point in points indexed by indices
+ * 
+ * @param points the whole point cloud
+ * @param kdtree KDTree built with point cloud (Lidar Coord)
+ * @param indices indices of selected points
+ * @param radius radius to compute point covariance
+ * @param max_pts max points of neighbours
+ * @return std::tuple<std::vector<VecIndex>, VecIndex> Vec of neighbors' indices, valid index of querys
+ */
+std::tuple<std::vector<VecIndex>, VecIndex> ComputeLocalNeighbor(const VecVector3d &points, const KDTree3D* kdtree, const VecIndex &querys,
+    const double radius, const int max_pts)
+{
+    std::vector<VecIndex> neighbors;
+    neighbors.reserve(querys.size());
+    VecIndex valid_indices;
+    valid_indices.reserve(querys.size());
+    for (std::size_t i = 0; i < querys.size(); ++i){
+        const IndexType query_idx = querys[i];
+        VecIndex indices(max_pts);
+        std::vector<double> sq_dist(max_pts);
+        nanoflann::KNNResultSet<double, IndexType> resultSet(max_pts);
+        resultSet.init(indices.data(), sq_dist.data());
+        kdtree->index->findNeighbors(resultSet, points[query_idx].data(), nanoflann::SearchParameters());
+        int k = resultSet.size();
+        if(k < 3)
+            continue;
+        k = std::distance(sq_dist.begin(),
+                      std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
+                                       radius * radius)); // iterator difference between start and last valid index
+        indices.resize(k);
+        sq_dist.resize(k);
+        if(k < 3)
+            continue;
+        neighbors.push_back(indices); // self-to-self distance is minimum
+        valid_indices.push_back(i);
+    }
+    return {neighbors, valid_indices};
+}
+
 void initInput(double* params, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames, const g2o::Vector7& init_sim3_log, std::unordered_map<int, int> &KFIdMap)
 {
     KFIdMap.reserve(KeyFrames.size());
@@ -141,7 +183,7 @@ void initInput(double* params, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrame
         cv::Mat pose = pKF->GetPose();
         Eigen::Matrix4d poseEigen;
         cv::cv2eigen(pose, poseEigen);
-        g2o::Vector6 se3_log = SE3log<double>(poseEigen.topLeftCorner(3, 3), poseEigen.topRightCorner(3, 1));
+        g2o::Vector6 se3_log = SE3Log(poseEigen.topLeftCorner(3, 3), poseEigen.topRightCorner(3, 1));
         std::copy(se3_log.data(), se3_log.data() + 6, params + 7 + posei*6);
         KFIdMap.insert(std::make_pair(int(pKF->mnId), posei));
         posei += 1;
@@ -149,7 +191,7 @@ void initInput(double* params, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrame
 }
 
 
-void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames,
+void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector<std::unique_ptr<KDTree3D>> &PointKDTrees, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames,
     const std::unordered_map<int, int> &KFIdMap, double* params, ceres::Problem &problem, const IBAGPRParams &iba_params)
 {
     
@@ -168,8 +210,8 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
     #pragma omp parallel for schedule(static) reduction(+:cnt)
     for(std::size_t Fi = 0; Fi < PointClouds.size(); ++Fi)
     {
-        VecVector3d points = PointClouds[Fi];  // copy
-        VecVector3d normals;
+        VecVector3d points = PointClouds[Fi];  // pointcloud in camera coord
+        VecVector3d normals;  // point normals in camera coord
         ORB_SLAM2::KeyFrame* pKF = KeyFrames[Fi];
         const double H = pKF->mnMaxY, W = pKF->mnMaxX;
         TransformPointCloudInplace(points, initSE3); // Transfer to Camera coordinate
@@ -196,18 +238,18 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             relPoseList.push_back(std::move(relPoseEigen));
         }
         VecIndex indices; // valid indices for projecion
-        VecIndex subindices; // valid subindices of `indices` through normal computing
         indices.reserve(corrset.size());
-        for(const CorrType &corr:corrset)
-        {
-            if(srcKptIndices.count(corr.first) > 0)  // Lidar-Keypoint corr in Keypoint-Keypoint corr
-                indices.push_back(corr.second);
-        }
-        std::tie(normals, subindices) = ComputeLocalNormal(points, indices, iba_params.neigh_radius, iba_params.kdtree3d_max_leaf_size, iba_params.neigh_max_pts);
-        
+        VecIndex subindices; // valid subindices of `indices` through normal computing
+        std::vector<VecIndex> neighbor_indices;
+        std::tie(neighbor_indices, subindices) = ComputeLocalNeighbor(PointClouds[Fi], PointKDTrees[Fi].get(), indices, iba_params.neigh_radius, iba_params.neigh_max_pts);
         for(std::size_t sub_idx = 0; sub_idx < subindices.size(); ++ sub_idx)
         {
             const IndexType idx = subindices[sub_idx];  // valid idx in corrset
+            const VecIndex &neigh_idx = neighbor_indices[sub_idx];
+            VecVector3d neighbor_pts;
+            neighbor_pts.reserve(neigh_idx.size());
+            for(auto const &idx:neigh_idx)
+                neighbor_pts.push_back(points[idx]);
             const int point2d_idx = corrset[idx].first;  // KeyPoint Idx matched with PointCloud
             const int point3d_idx = corrset[idx].second; // Point Idx matched with KeyPoints
             double u0 = pKF->mvKeysUn[point2d_idx].pt.x;
@@ -236,8 +278,10 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             if(u1_list.size() == 0)
                 continue; // Should Not Run into
             ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernerl_delta * u1_list.size());
-            ceres::CostFunction *cost_function = UIBA_PlaneFactor::Create(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0,
-                u1_list, v1_list, p0, n0);
+            ceres::CostFunction *cost_function = UIBA_GPRFactor::Create(
+                iba_params.init_sigma, iba_params.init_l, iba_params.sigma_noise, neighbor_pts, pKF->fx, pKF->fy,
+                pKF->cx, pKF->cy, u0, v0, u1_list, v1_list, iba_params.optimize, iba_params.verborse
+            );
             problem.AddResidualBlock(cost_function, loss_function, param_blocks);
             ++edge_cnt;  // valid factor count
         }
@@ -302,20 +346,23 @@ int main(int argc, char** argv){
     std::vector<int> vKFFrameId = FrameIdCfg["mnFrameId"].as<std::vector<int>>();
     // Pre-allocate memory to enhance peformance
     std::vector<VecVector3d> PointClouds;
+    std::vector<std::unique_ptr<KDTree3D>> PointKDTrees;
     PointClouds.resize(vKFFrameId.size());
+    PointKDTrees.resize(vKFFrameId.size());
     std::size_t KFcnt = 0;
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(static) reduction(+:KFcnt)
     for(std::size_t i = 0; i < vKFFrameId.size(); ++i)
     {
         auto KFId = vKFFrameId[i];
         VecVector3d PointCloud;
         readPointCloud(pointcloud_dir + RawPointCloudFiles[KFId], PointCloud);
+        PointKDTrees[i] = std::make_unique<KDTree3D>(3, PointCloud, iba_params.kdtree3d_max_leaf_size);
         PointClouds[i] = std::move(PointCloud);
-        #pragma critical
+        KFcnt++;
+        #pragma omp critical
         {
-            KFcnt++;
             if(iba_params.verborse && (KFcnt) % 100 ==0)
-                std::printf("Read PointCloud %0.2lf %%\n", 100.0*(KFcnt)/vKFFrameId.size());
+                std::printf("Read PointCloud %0.2lf %% with KDTree built.\n", 100.0*(KFcnt)/vKFFrameId.size());
         }
     }
     RawPointCloudFiles.clear(); 
@@ -332,7 +379,7 @@ int main(int argc, char** argv){
     std::cout << "Rotation:\n" << rigid.topLeftCorner(3, 3) << std::endl;
     std::cout << "Translation: " << rigid.topRightCorner(3, 1).transpose() << std::endl;
     std::cout << "Scale: " << scale << std::endl;
-    g2o::Vector7 init_sim3_log = Sim3log<double>(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1), scale);
+    g2o::Vector7 init_sim3_log = Sim3Log(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1), scale);
     std::unordered_map<int, int> KFIdMap;
     double params[7 + 6 * KeyFrames.size()];
     
@@ -347,7 +394,7 @@ int main(int argc, char** argv){
         options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
         options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
         ceres::Problem problem;
-        BuildProblem(PointClouds, KeyFrames, KFIdMap, params, problem, iba_params);
+        BuildProblem(PointClouds, PointKDTrees, KeyFrames, KFIdMap, params, problem, iba_params);
         ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
 

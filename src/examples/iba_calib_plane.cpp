@@ -140,7 +140,7 @@ void initInput(double* params, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrame
         cv::Mat pose = pKF->GetPose();
         Eigen::Matrix4d poseEigen;
         cv::cv2eigen(pose, poseEigen);
-        g2o::Vector6 se3_log = SE3log<double>(poseEigen.topLeftCorner(3, 3), poseEigen.topRightCorner(3, 1));
+        g2o::Vector6 se3_log = SE3Log(poseEigen.topLeftCorner(3, 3), poseEigen.topRightCorner(3, 1));
         std::copy(se3_log.data(), se3_log.data() + 6, params + 7 + posei*6);
         KFIdMap.insert(std::make_pair(int(pKF->mnId), posei));
         posei += 1;
@@ -304,16 +304,16 @@ int main(int argc, char** argv){
     std::vector<VecVector3d> PointClouds;
     PointClouds.resize(vKFFrameId.size());
     std::size_t KFcnt = 0;
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(static) reduction(+:KFcnt)
     for(std::size_t i = 0; i < vKFFrameId.size(); ++i)
     {
         auto KFId = vKFFrameId[i];
         VecVector3d PointCloud;
         readPointCloud(pointcloud_dir + RawPointCloudFiles[KFId], PointCloud);
         PointClouds[i] = std::move(PointCloud);
-        #pragma critical
+        KFcnt++;
+        #pragma omp critical
         {
-            KFcnt++;
             if(iba_params.verborse && (KFcnt) % 100 ==0)
                 std::printf("Read PointCloud %0.2lf %%\n", 100.0*(KFcnt)/vKFFrameId.size());
         }
@@ -332,7 +332,7 @@ int main(int argc, char** argv){
     std::cout << "Rotation:\n" << rigid.topLeftCorner(3, 3) << std::endl;
     std::cout << "Translation: " << rigid.topRightCorner(3, 1).transpose() << std::endl;
     std::cout << "Scale: " << scale << std::endl;
-    g2o::Vector7 init_sim3_log = Sim3log<double>(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1), scale);
+    g2o::Vector7 init_sim3_log = Sim3Log(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1), scale);
     std::unordered_map<int, int> KFIdMap;
     double params[7 + 6 * KeyFrames.size()];
     
