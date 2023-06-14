@@ -6,7 +6,6 @@ from cv_tools import *
 from scipy.spatial import cKDTree
 from joblib import delayed, Parallel
 import json
-import cv2
 from matplotlib import pyplot as plt
 os.chdir(os.path.dirname(__file__))
 
@@ -103,8 +102,8 @@ def options():
     
     io_parser = parser.add_argument_group()
     io_parser.add_argument("--keypoint_dir",type=str,default="../debug/data/")
-    io_parser.add_argument("--init_sim3",type=str,default="../KITTI-00/calib_res/pso_calib_00.txt")
-    io_parser.add_argument("--gt_sim3",type=str,default="../KITTI-00/calib_res/iba_calib_00.txt")
+    io_parser.add_argument("--init_sim3",type=str,default="../KITTI-00/calib_res/iba_global_00_1.txt")
+    io_parser.add_argument("--gt_sim3",type=str,default="../KITTI-00/calib_res/gt_calib_00.txt")
     
     arg_parser = parser.add_argument_group()
     arg_parser.add_argument("--offset",type=float,default=-1)

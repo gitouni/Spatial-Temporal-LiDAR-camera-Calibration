@@ -3,8 +3,8 @@ import numpy as np
 import argparse
 import os
 import cv2
-# import matplotlib
-# matplotlib.use('agg')
+import matplotlib
+matplotlib.use('agg')
 from matplotlib import pyplot as plt
 from cv_tools import *
 from scipy.spatial.ckdtree import cKDTree
@@ -30,7 +30,7 @@ def options():
     kitti_parser.add_argument("--base_dir",type=str,default="/data/DATA/data_odometry/dataset/")
     kitti_parser.add_argument("--seq",type=int,default=0,choices=[i for i in range(11)])
     kitti_parser.add_argument("--index_i",type=int,default=0)
-    kitti_parser.add_argument("--index_j",type=int,default=3)
+    kitti_parser.add_argument("--index_j",type=int,default=1)
     
     io_parser = parser.add_argument_group()
     io_parser.add_argument("--Twc_file",type=str,default="../Twc.txt")
@@ -39,7 +39,7 @@ def options():
     arg_parser = parser.add_argument_group()
     arg_parser.add_argument("--tsl_perturb",type=float,nargs=3,default=[0.1,-0.15,0.1])
     arg_parser.add_argument("--rot_perturb",type=float,nargs=3,default=[0,0,0])
-    arg_parser.add_argument("--fps_sample",type=int,default=-1)
+    arg_parser.add_argument("--fps_sample",type=int,default=400)
     arg_parser.add_argument("--pixel_corr_dist",type=float,default=1)
     arg_parser.add_argument("--view",type=str2bool,default=True)
     args = parser.parse_args()
@@ -83,15 +83,14 @@ def compute_orb_desc(img:np.ndarray):
 
 if __name__ == "__main__":
     args = options()
-    augT = toMat(args.rot_perturb, args.tsl_perturb)
-    print("augT:\n{}".format(augT))
+    lk_params = dict( winSize  = (21, 21),
+                  maxLevel = 3,
+                  criteria = (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 30, 0.03))
     dataStruct = pykitti.odometry(args.base_dir, args.seq_id)
     calibStruct = dataStruct.calib
     extran = calibStruct.T_cam0_velo  # [4,4]
     print("GT TCL:\n{}".format(extran))
     print("GT TCL Rvec:{}\ntvec:{}".format(*toVec(extran)))
-    
-    aug_extran = augT @ extran
     intran = calibStruct.K_cam0
     src_pcd_arr = dataStruct.get_velo(args.index_i)[:,:3]  # [N, 3]
     tgt_pcd_arr = dataStruct.get_velo(args.index_j)[:,:3]  # [N, 3]
@@ -100,31 +99,16 @@ if __name__ == "__main__":
     src_pose = dataStruct.poses[args.index_i]
     tgt_pose = dataStruct.poses[args.index_j]
     camera_motion:np.ndarray = inv_pose(tgt_pose) @ src_pose
-    src_kp, src_desc = compute_orb_desc(src_img)
-    tgt_kp, tgt_desc = compute_orb_desc(tgt_img)
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = bf.match(src_desc,tgt_desc)
-    src_matched_pts = []
-    tgt_matched_pts = []
-    for match in matches:
-        src_matched_pts.append(src_kp[match.queryIdx].pt)
-        tgt_matched_pts.append(tgt_kp[match.trainIdx].pt)
+    p0, src_rev = npproj(src_pcd_arr, extran, intran, src_img.shape[:2])
+    p0 = p0.astype(np.float32)
+    p1, _st, _err = cv2.calcOpticalFlowPyrLK(src_img, tgt_img, p0, None)
+    # p0r, *_ = cv2.calcOpticalFlowPyrLK(tgt_img, src_img, p1, None)
+    optical_rev = np.array(_st,dtype=np.bool_).reshape(-1)
 
-    src_matched_pts = np.array(src_matched_pts)  # [N, 2]
-    tgt_matched_pts = np.array(tgt_matched_pts)
-    
-    src_pcd_camcoord = nptran(src_pcd_arr, extran)
-    proj_src_pcd, src_rev = npproj(src_pcd_camcoord, np.eye(4), intran, src_img.shape)
-    src_2d_kdtree = cKDTree(proj_src_pcd, leafsize=30)
-    src_dist, src_pcd_query = src_2d_kdtree.query(src_matched_pts, 1, eps=1e-4, p=1)
- 
-    src_dist_rev = src_dist < args.pixel_corr_dist
-    src_matched_pts = src_matched_pts[src_dist_rev]
-    tgt_matched_pts = tgt_matched_pts[src_dist_rev]
-    src_pcd_query = src_pcd_query[src_dist_rev]
-
-    src2tgt_pcd_arr = nptran(src_pcd_camcoord[src_rev][src_pcd_query], camera_motion)
-    src2tgt_proj_pcd, src2tgt_proj_rev = npproj(src2tgt_pcd_arr, np.eye(4), intran, tgt_img.shape)
+    src_matched_pts = p0[optical_rev]  # [N, 2]
+    tgt_matched_pts = p1[optical_rev]
+    src_pcd_corr = src_pcd_arr[src_rev][optical_rev]
+    src2tgt_proj_pcd, src2tgt_proj_rev = npproj(src_pcd_corr, camera_motion @ extran, intran, tgt_img.shape[:2])
     src_matched_pts = src_matched_pts[src2tgt_proj_rev]
     tgt_matched_pts = tgt_matched_pts[src2tgt_proj_rev]
     tgt_matched_pts, src2tgt_proj_pcd, src_matched_pts = list(map(lambda arr: arr.astype(np.int32),[tgt_matched_pts, src2tgt_proj_pcd, src_matched_pts]))
@@ -137,7 +121,8 @@ if __name__ == "__main__":
     draw_tgt_img, draw_src_img = draw3corrpoints(tgt_img, src_img, tgt_matched_pts[fps_idx], src2tgt_proj_pcd[fps_idx], src_matched_pts[fps_idx])
     plt.subplot(2,1,1)
     plt.imshow(draw_src_img)
+    plt.title("Tracked %d points"%(tgt_matched_pts.shape[0]))
     plt.subplot(2,1,2)
     plt.imshow(draw_tgt_img)
-    plt.show()
+    plt.savefig("results/optical.png")
     

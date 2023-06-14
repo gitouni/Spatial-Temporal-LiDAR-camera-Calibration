@@ -91,8 +91,8 @@ class GPR:
     def __init__(self, optimize=True):
         self.is_fit = False
         self.train_X, self.train_y = None, None
-        self.l_bound = [1e-2, 1e2]
-        self.sigma_bound = [1e-2, 1e2]
+        self.l_bound = [1e-3, 1e2]
+        self.sigma_bound = [1e-3, 1e3]
         self.params = {"l": 10, "sigma_f": 10, "noise":1e-10}
         self.optimize = optimize
         self.dist = None

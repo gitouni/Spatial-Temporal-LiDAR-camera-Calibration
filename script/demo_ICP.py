@@ -10,7 +10,7 @@ from cv_tools import *
 from scipy.spatial import cKDTree
 from GP_reg import GPR
 from joblib import delayed, Parallel
-from scipy.interpolate import BSpline, make_interp_spline
+from scipy.interpolate import splev, splrep
 
 
 os.chdir(os.path.dirname(__file__))
@@ -52,7 +52,7 @@ def options():
     
     arg_parser = parser.add_argument_group()
     arg_parser.add_argument("--fps_sample",type=int,default=-1)
-    arg_parser.add_argument("--pixel_corr_dist",type=float,default=1.5)
+    arg_parser.add_argument("--pixel_corr_dist",type=float,default=3)
     arg_parser.add_argument("--gpr_radius",type=float,default=0.6)
     arg_parser.add_argument("--gpr_max_pts",type=int,default=30)
     arg_parser.add_argument("--gpr_max_cov",type=float,default=0.1)
@@ -103,14 +103,10 @@ def getMatchedId(src_mappt_indices:list, tgt_mappt_indices:list, src_corrkpt_ind
             tgt_matched_indices.append(tgt_corrkpt_indices[tgt_id])
     return np.array(src_matched_indices), np.array(tgt_matched_indices)  # Keypoint Indices
 
-def bspline_interp(train_X:np.ndarray, train_Y:np.ndarray, test_X:np.ndarray):
-    bspline:BSpline = make_interp_spline(train_X, train_Y)
-    if np.ndim(test_X) == 1:
-        return bspline(test_X[None,:]).squeeze()
-    else:
-        return bspline(test_X)
-
-def superpixel_approx(pcd:np.ndarray, query:np.ndarray, pixels:np.ndarray, intran:np.ndarray, radius:float, max_pts:int, img_shape:tuple):
+    
+    
+def superpixel_approx(pcd:np.ndarray, query:np.ndarray, pixels:np.ndarray, intran:np.ndarray,\
+            radius:float, max_pts:int, img_shape:tuple):
     def gpr_approx(idx):
         query_idx = query[idx]
         pixel = pixels[idx]
@@ -127,20 +123,17 @@ def superpixel_approx(pcd:np.ndarray, query:np.ndarray, pixels:np.ndarray, intra
         # try:
         gpr = GPR(optimize=args.gpr_opt)
         gpr.params['l'] = 5
-        gpr.params['sigma_f'] = 0.1
+        gpr.params['sigma_f'] = 0.05
         gpr.fit(proj_pts, 1/depth)  # use inverse depth
         print_params(gpr.params)
         pz = gpr.predict(pixel[None,:])
-        pz = 1/pz.item()
+        pz = 1.0/pz.item()
         px = (pixel[0] - cx) / fx * pz
         py = (pixel[1] - cy) / fy * pz
         return np.array([px, py, pz])
-        # except Exception as e:
-        #     return query_pt
-    
-    pcd_kdtree = cKDTree(pcd, leafsize=30)
     N = query.shape[0]
     assert(query.shape[0] == pixels.shape[0])
+    pcd_kdtree = cKDTree(pcd, leafsize=30)
     fx = intran[0,0]
     fy = intran[1,1]
     cx = intran[0,2]
@@ -186,35 +179,52 @@ if __name__ == "__main__":
     tgt_matched_pts = tgt_keypts[tgt_matched_pts_idx]
     print("Matched Keypoints:{}".format(len(src_matched_pts)))
     src_pcd_camcoord = nptran(src_pcd_arr, extran)
+    tgt_pcd_camcoord = nptran(tgt_pcd_arr, extran)
     proj_src_pcd, src_rev = npproj(src_pcd_camcoord, np.eye(4), intran, src_img.shape)
+    proj_tgt_pcd, tgt_rev = npproj(tgt_pcd_camcoord, np.eye(4), intran, tgt_img.shape)
+    src_pcd_camcoord = src_pcd_camcoord[src_rev]  # same size with proj_src_pcd
+    tgt_pcd_camcoord = tgt_pcd_camcoord[tgt_rev]  # same size with proj_tgt_pcd
     src_2d_kdtree = cKDTree(proj_src_pcd, leafsize=10)
+    tgt_2d_kdtree = cKDTree(proj_tgt_pcd, leafsize=10)
     src_dist, src_pcd_query = src_2d_kdtree.query(src_matched_pts, 1, eps=1e-4, p=1)
- 
-    src_dist_rev = src_dist < args.pixel_corr_dist
-    src_matched_pts = src_matched_pts[src_dist_rev]
-    tgt_matched_pts = tgt_matched_pts[src_dist_rev]
-    src_pcd_query = src_pcd_query[src_dist_rev]
-    src_pcd_camcoord = src_pcd_camcoord[src_rev]
+    tgt_dist, tgt_pcd_query = tgt_2d_kdtree.query(tgt_matched_pts, 1, eps=1e-4, p=1)
+    common_rev = np.logical_and(src_dist < args.pixel_corr_dist, tgt_dist < args.pixel_corr_dist)
+    src_matched_pts = src_matched_pts[common_rev]  # need to keep the size of src_matched_pts and tgt_matched_pts to be equal
+    tgt_matched_pts = tgt_matched_pts[common_rev]
+    src_pcd_query = src_pcd_query[common_rev]
+    tgt_pcd_query = tgt_pcd_query[common_rev]
     src_pcd_3d_query = np.arange(src_pcd_camcoord.shape[0])
     src_pcd_3d_query = src_pcd_3d_query[src_pcd_query]
+    tgt_pcd_3d_query = np.arange(tgt_pcd_camcoord.shape[0])
+    tgt_pcd_3d_query = tgt_pcd_3d_query[tgt_pcd_query]
     if args.gpr:
-        sp_pts3d = superpixel_approx(src_pcd_camcoord, src_pcd_3d_query, src_matched_pts, intran, args.gpr_radius, args.gpr_max_pts, src_img.shape)
+        src_pts3d = superpixel_approx(src_pcd_camcoord, src_pcd_3d_query, src_matched_pts, intran, args.gpr_radius, args.gpr_max_pts, src_img.shape)
+        tgt_pts3d = superpixel_approx(tgt_pcd_camcoord, tgt_pcd_3d_query, tgt_matched_pts, intran, args.gpr_radius, args.gpr_max_pts, tgt_img.shape)
+        
     else:
-        sp_pts3d = src_pcd_camcoord[src_pcd_3d_query]
-    src_proj_pcd, _ = npproj(sp_pts3d, np.eye(4), intran, src_img.shape)
-    tgt_pcd_arr = nptran(sp_pts3d, camera_motion)
-    tgt_proj_pcd, tgt_proj_rev = npproj(tgt_pcd_arr, np.eye(4), intran, tgt_img.shape)
-    src_matched_pts = src_matched_pts[tgt_proj_rev]
-    tgt_matched_pts = tgt_matched_pts[tgt_proj_rev]
-    err = np.mean(np.sqrt(np.sum((tgt_matched_pts - tgt_proj_pcd)**2,axis=1)))
-    draw_tgt_img, draw_src_img = draw4corrpoints(tgt_img, src_img, *list(map(lambda arr: arr.astype(np.int32),[tgt_matched_pts, tgt_proj_pcd, src_matched_pts, src_proj_pcd])))
+        src_pts3d = src_pcd_camcoord[src_pcd_3d_query]
+        tgt_pts3d = tgt_pcd_camcoord[tgt_pcd_3d_query]
+    src_pts3d = nptran(src_pts3d, camera_motion)
+    print(src_pts3d.shape, tgt_pts3d.shape)
+    norm_diff = np.sort(np.linalg.norm(src_pts3d - tgt_pts3d,axis=1))
+    Nnorm = len(norm_diff)
+    print("Min:{:0.4f}, Q25:{:0.4f}, Q50:{:0.4f}, Q75:{:0.4f}, Max:{:0.4f}, Mean:{:0.4f}".format(
+        norm_diff[0], norm_diff[int(0.25*Nnorm)], norm_diff[int(0.5*Nnorm)], norm_diff[int(0.75*Nnorm)], norm_diff[Nnorm-1], norm_diff.mean()
+    ))
+    # src_proj_pcd, _ = npproj(src_pts3d, np.eye(4), intran, src_img.shape)
+    # tgt_pcd_arr = nptran(src_pts3d, camera_motion)
+    # tgt_proj_pcd, tgt_proj_rev = npproj(tgt_pcd_arr, np.eye(4), intran, tgt_img.shape)
+    # src_matched_pts = src_matched_pts[tgt_proj_rev]
+    # tgt_matched_pts = tgt_matched_pts[tgt_proj_rev]
+    # err = np.mean(np.sqrt(np.sum((tgt_matched_pts - tgt_proj_pcd)**2,axis=1)))
+    # draw_tgt_img, draw_src_img = draw4corrpoints(tgt_img, src_img, *list(map(lambda arr: arr.astype(np.int32),[tgt_matched_pts, tgt_proj_pcd, src_matched_pts, src_proj_pcd])))
     
-    plt.figure(dpi=200)
-    plt.subplot(2,1,1)
-    plt.title("Matched points:{} | error:{:0.4}".format(tgt_matched_pts.shape[0],err))
-    plt.imshow(draw_src_img)
-    plt.subplot(2,1,2)
-    plt.imshow(draw_tgt_img)
-    plt.show()
+    # plt.figure(dpi=200)
+    # plt.subplot(2,1,1)
+    # plt.title("Matched points:{} | error:{:0.4}".format(tgt_matched_pts.shape[0],err))
+    # plt.imshow(draw_src_img)
+    # plt.subplot(2,1,2)
+    # plt.imshow(draw_tgt_img)
+    # plt.show()
     # plt.savefig("../demo_IBA_FS.pdf")
     

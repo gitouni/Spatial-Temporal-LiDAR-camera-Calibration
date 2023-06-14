@@ -2,13 +2,10 @@ import pykitti
 import numpy as np
 import argparse
 import os
-import cv2
-import open3d as o3d
-import copy
 # import matplotlib
 # matplotlib.use('agg')
 from matplotlib import pyplot as plt
-from tools import *
+from cv_tools import *
 
 
 os.chdir(os.path.dirname(__file__))
@@ -29,18 +26,21 @@ def options():
     kitti_parser.add_argument("--base_dir",type=str,default="/data/DATA/data_odometry/dataset/")
     kitti_parser.add_argument("--seq",type=int,default=0,choices=[i for i in range(11)])
     kitti_parser.add_argument("--index_i",type=int,default=0)
-    kitti_parser.add_argument("--index_j",type=int,default=1)
+    kitti_parser.add_argument("--index_j",type=int,default=3)
     
     io_parser = parser.add_argument_group()
+    io_parser.add_argument("--skip_pts",type=int,default=1)
     io_parser.add_argument("--index_file",type=str,default="../KITTI-00/FrameId.yml")
-    io_parser.add_argument("--Twc_file",type=str,default="../KITTI-00/Twc.txt")
-    io_parser.add_argument("--Twl_file",type=str,default="../KITTI-00/floam_isam_00.txt")
-    io_parser.add_argument("--TCL_file",type=str,default="../KITTI-00/icp_calib_00.txt")
+    io_parser.add_argument("--Twc_file",type=str,default="../KITTI-00/slam_res/Twc.txt")
+    io_parser.add_argument("--Twl_file",type=str,default="../KITTI-00/slam_res/floam_isam_00.txt")
+    io_parser.add_argument("--TCL_file",type=str,default="../KITTI-00/calib_res/iba_calib_00.txt")
     
     arg_parser = parser.add_argument_group()
     arg_parser.add_argument("--view",type=str2bool,default=True)
     args = parser.parse_args()
     args.seq_id = "%02d"%args.seq
+    if args.skip_pts <= 0:
+        args.skip_pts = 1
     return args
 
 if __name__ == "__main__":
@@ -51,8 +51,8 @@ if __name__ == "__main__":
     extran = np.eye(4)
     extran[:3,:] = extran_raw[:12].reshape(3,4)
     scale = extran_raw[-1]
-    src_pcd_arr = dataStruct.get_velo(args.index_i)[:,:3]  # [N, 3]
-    tgt_pcd_arr = dataStruct.get_velo(args.index_j)[:,:3]  # [N, 3]
+    src_pcd_arr = dataStruct.get_velo(args.index_i)[::args.skip_pts,:3]  # [N, 3]
+    tgt_pcd_arr = dataStruct.get_velo(args.index_j)[::args.skip_pts,:3]  # [N, 3]
     src_img = np.array(dataStruct.get_cam2(args.index_i))  # [H, W, 3]
     tgt_img = np.array(dataStruct.get_cam2(args.index_j))  # [H, W, 3]
     # src_img = np.flip(src_img,axis=2)  # BGR to RGB

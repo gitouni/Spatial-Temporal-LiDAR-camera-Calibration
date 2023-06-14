@@ -3,6 +3,7 @@ from scipy.spatial.transform import Rotation
 from fps_v1 import FPS
 import cv2
 
+
 def drawcorrpoints(img1,img2,pts1,pts2):
     img1 = cv2.cvtColor(img1,cv2.COLOR_GRAY2BGR)
     img2 = cv2.cvtColor(img2,cv2.COLOR_GRAY2BGR)
@@ -41,7 +42,7 @@ def skew(x:np.ndarray):
 def computeV(rvec:np.ndarray):
     theta = np.linalg.norm(rvec)
     skew_rvec = skew(rvec)
-    skew_rvec2 = skew_rvec * skew_rvec
+    skew_rvec2 = skew_rvec @ skew_rvec
     V = np.eye(3) + (1 - np.cos(theta))/theta**2 * skew(rvec) + (theta - np.sin(theta))/theta**3 * skew_rvec2
     return V
     
@@ -135,7 +136,7 @@ def npproj(pcd:np.ndarray, extran:np.ndarray, intran:np.ndarray, img_shape:tuple
     Returns:
         _type_: uv (N,2), rev (N,)
     """
-    H, W = img_shape
+    H, W = img_shape[0], img_shape[1]
     pcd_ = nptran(pcd, extran)  # (N, 3)
     pcd_ = intran @ pcd_.T  # (3, N)
     u, v, w = pcd_[0], pcd_[1], pcd_[2]
