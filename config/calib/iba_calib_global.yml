@@ -1,0 +1,36 @@
+%YAML:1.0
+---
+io:
+  BaseDir: ../KITTI-00/
+  VOFile: slam_res/Twc.txt
+  LOFile: slam_res/floam_isam_00.txt
+  VOIdFile: FrameId.yml
+  ResFile: calib_res/iba_global_00_4.txt
+  init_sim3: calib_res/he_calib_00.txt
+  gt_sim3: calib_res/gt_calib_00.txt
+  PointCloudDir: ../data/00/velodyne
+  PointCloudskip: 1
+
+orb:
+  Vocabulary: ../data/Vocabulary/ORBvoc.txt
+  Config: ../config/orb_ori/KITTI00-02.yaml
+  KeyFrameDir: ../KITTI-00/KeyFrames/
+  MapFile: ../KITTI-00/Map.yml
+
+runtime:
+  max_pixel_dist: 1.5
+  num_best_convis: 3 # set negative to use min_convis_weight
+  min_covis_weight: 200
+  kdtree2d_max_leaf_size: 10
+  kdtree3d_max_leaf_size: 30
+  corr_3d_2d_threshold: 40
+  corr_3d_3d_threshold: 10.0
+  he_threshold: 0.13
+  err_weight: [1.0, 1.0]
+  init_mesh: [0.04,0.04,0.04,0.1,0.1,0.1,0.25]
+  min_mesh: 1e-8
+  lb: [-0.1,-0.1,-0.1,-0.3,-0.3,-0.3,-1.0]
+  ub: [0.1,0.1,0.1,0.,0.,0.,1.0]
+  max_bbeval: 2000
+  cacheFile: ../KITTI-00/cache/cache_00_d1.5_fuse_filter_wide.txt
+  verborse: true
