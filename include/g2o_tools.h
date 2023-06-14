@@ -67,56 +67,16 @@ g2o::MatrixN<3, T> skew(const g2o::VectorN<3, T> &v) {
     return m;
 }
 
-template <typename T>
-g2o::VectorN<3,T> deltaR(const g2o::MatrixN<3, T>& R) {
-  g2o::VectorN<3,T>  v;
-  v(0) = R(2, 1) - R(1, 2);
-  v(1) = R(0, 2) - R(2, 0);
-  v(2) = R(1, 0) - R(0, 1);
-  return v;
+g2o::Vector6 SE3Log(const g2o::Matrix3 &rotation, const g2o::Vector3 &translation)
+{
+    g2o::SE3Quat quat(rotation, translation);
+    return quat.log();
 }
 
-template <typename T>
-g2o::VectorN<6, T> SE3log(g2o::MatrixN<3, T> _R, g2o::VectorN<3, T> _t)
+g2o::Vector7 Sim3Log(const g2o::Matrix3 &rotation, const g2o::Vector3 &translation, const double &scale)
 {
-    g2o::VectorN<6, T> res;
-    T d = T(0.5) * (_R(0, 0) + _R(1, 1) + _R(2, 2) - 1);
-    g2o::VectorN<3, T> omega, upsilon;
-    g2o::VectorN<3, T> dR = deltaR<T>(_R);
-    g2o::MatrixN<3, T> V_inv;
-
-    if (abs(d) > T(0.99999)) {
-      omega = T(0.5) * dR;
-      g2o::MatrixN<3, T> Omega = skew<T>(omega);
-      V_inv = g2o::MatrixN<3, T>::Identity() - T(0.5) * Omega +
-              (T(1.) / T(12.)) * (Omega * Omega);
-    } else {
-      T theta = acos(d);
-      omega = theta / (2 * sqrt(1 - d * d)) * dR;
-      g2o::MatrixN<3, T> Omega = skew<T>(omega);
-      V_inv = (g2o::MatrixN<3, T>::Identity() - T(0.5) * Omega +
-               (T(1) - theta / (T(2) * tan(theta / T(2)))) / (theta * theta) *
-                   (Omega * Omega));
-    }
-
-    upsilon = V_inv * _t;
-    for (int i = 0; i < 3; i++) {
-      res[i] = omega[i];
-    }
-    for (int i = 0; i < 3; i++) {
-      res[i + 3] = upsilon[i];
-    }
-
-    return res;
-}
-
-template <typename T>
-g2o::VectorN<7, T> Sim3log(g2o::MatrixN<3, T> _R, g2o::VectorN<3, T> _t, T scale)
-{
-    g2o::VectorN<7, T> res;
-    g2o::VectorN<6, T> se3_log = SE3log<T>(_R, _t);
-    for(int i = 0; i < 6; ++i)
-        res[i] = se3_log[i];
+    g2o::Vector7 res;
+    res.head<6>() = SE3Log(rotation, translation);
     res[6] = scale;
     return res;
 }
@@ -206,6 +166,24 @@ std::tuple<g2o::MatrixN<3, T>, g2o::VectorN<3, T> > SE3Exp(const T* update)
             (theta - sinth) * invth3 * Omega2);
     }
     return {R, V * upsilon};
+}
+
+std::map<std::string, double> LogEdges(std::vector<double>& err_list)
+{
+    const int N = err_list.size();
+    std::sort(err_list.begin(), err_list.end());
+    std::map<std::string, double> logs;
+    double err_mean = 0;
+    for(auto const &err:err_list)
+        err_mean += err;
+    err_mean /= N;
+    logs["Mean"] = err_mean;
+    logs["Min"] = err_list[0];
+    logs["Q25"] = err_list[int(0.25*N)];
+    logs["Q50"] = err_list[int(0.5*N)];
+    logs["Q75"] = err_list[int(0.75*N)];
+    logs["Max"] = err_list[N-1];
+    return logs;
 }
 
 /**

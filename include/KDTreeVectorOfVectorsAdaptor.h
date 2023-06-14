@@ -70,6 +70,14 @@ struct KDTreeVectorOfVectorsAdaptor
 
     /// Constructor: takes a const ref to the vector of vectors object with the
     /// data points
+    /**
+     * @brief Constructor: takes a const ref to the vector of vectors object with the
+     * data points
+     * @param size_t DIM
+     * @param mat Points to be constructed as KDTree
+     * @param leaf_max_size maximum Kdtree leaf size
+     * @param n_thread_build use multiple threads to build kdtree
+    */
     KDTreeVectorOfVectorsAdaptor(
         const size_t /* dimensionality */, const VectorOfVectorsType& mat,
         const int leaf_max_size = 10, const unsigned int n_thread_build = 1)

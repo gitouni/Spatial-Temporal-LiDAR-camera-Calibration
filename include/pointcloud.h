@@ -9,14 +9,25 @@
 typedef std::vector<Eigen::Vector2d> VecVector2d;
 typedef std::vector<Eigen::Vector3d> VecVector3d;
 
+void RotatePointCloudInplace(VecVector3d &pointCloud, const Eigen::Matrix3d &rotation){
+    for(auto &point:pointCloud)
+        point = rotation * point;  // noalias
+}
+
+void RotatePointCloud(const VecVector3d &srcPointCloud, VecVector3d &tgtPointCloud, const Eigen::Matrix3d &rotation){
+    tgtPointCloud.resize(srcPointCloud.size());
+    for(std::size_t i = 0; i<srcPointCloud.size(); ++i)
+        tgtPointCloud[i] = rotation * srcPointCloud[i];
+}
+
 void TransformPointCloudInplace(VecVector3d &pointCloud, const Eigen::Isometry3d &transformation){
-    for(std::size_t i = 0; i <  pointCloud.size(); ++i)
-        pointCloud[i] = transformation * pointCloud[i];
+    for(auto &point:pointCloud)
+        point = transformation * point; // noalias
 }
 
 void TransformPointCloudInplace(VecVector3d &pointCloud, const Eigen::Matrix4d &transformation){
-    for(std::size_t i = 0; i <  pointCloud.size(); ++i)
-        pointCloud[i] = transformation.topLeftCorner(3, 3) * pointCloud[i] + transformation.topRightCorner(3, 1);
+    for(auto &point:pointCloud)
+        point = transformation.topLeftCorner(3, 3) * point + transformation.topRightCorner(3, 1);
 }
 
 void TransformPointCloud(const VecVector3d &srcPointCloud, VecVector3d &tgtPointCloud, const Eigen::Isometry3d &transformation){
