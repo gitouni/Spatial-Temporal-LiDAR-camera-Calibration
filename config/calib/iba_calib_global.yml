@@ -5,12 +5,12 @@ io:
   VOFile: slam_res/Twc.txt
   LOFile: slam_res/floam_isam_00.txt
   VOIdFile: FrameId.yml
-  ResFile: calib_res/iba_global_00_4.txt
+  ResFile: calib_res/iba_global_00_5.txt
   init_sim3: calib_res/he_calib_00.txt
   gt_sim3: calib_res/gt_calib_00.txt
   PointCloudDir: ../data/00/velodyne
   PointCloudskip: 1
-
+  PointCloudOnlyPositiveX: true 
 orb:
   Vocabulary: ../data/Vocabulary/ORBvoc.txt
   Config: ../config/orb_ori/KITTI00-02.yaml
@@ -27,10 +27,10 @@ runtime:
   corr_3d_3d_threshold: 10.0
   he_threshold: 0.13
   err_weight: [1.0, 1.0]
-  init_mesh: [0.04,0.04,0.04,0.1,0.1,0.1,0.25]
+  init_mesh: [0.1,0.1,0.1,0.3,0.3,0.3,1.0]
   min_mesh: 1e-8
   lb: [-0.1,-0.1,-0.1,-0.3,-0.3,-0.3,-1.0]
-  ub: [0.1,0.1,0.1,0.,0.,0.,1.0]
+  ub: [0.1,0.1,0.1,0.3,0.3,0.3,1.0]
   max_bbeval: 2000
   cacheFile: ../KITTI-00/cache/cache_00_d1.5_fuse_filter_wide.txt
   verborse: true
