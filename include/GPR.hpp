@@ -272,6 +272,7 @@ public:
             LBFGSpp::LBFGSBParam<double> param;
             param.epsilon = 1e-6;
             param.max_iterations = 30;
+            param.max_linesearch = 200;
             LBFGSpp::LBFGSBSolver<double> solver(param);
             VectorX<> theta;
             theta.resize(2);

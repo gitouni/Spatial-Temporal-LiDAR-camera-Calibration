@@ -110,21 +110,20 @@ public:
         g2o::VectorN<3, T> _p0 = p0.cast<T>();
         g2o::VectorN<3, T> _n0 = n0.cast<T>();
         const int N = u1_list.size();
-        
+        // Manifold Transform
+        g2o::VectorN<3, T> _p0c = _Rcl * _p0 + _tcl;
+        g2o::VectorN<3, T> _n0c = _Rcl * _n0;
+        T _Cxz = (_u0 - _cx)/_fx;
+        T _Cyz = (_v0 - _cy)/_fy;
+        T _Z0 = _n0c.dot(_p0c) / (_Cxz*_n0c(0) + _Cyz*_n0c(1) + _n0c(2));
+        T _X0 = _Cxz * _Z0;
+        T _Y0 = _Cyz * _Z0;
+        g2o::VectorN<3, T> _P0(_X0, _Y0, _Z0);
         for(int i = 0; i < N; ++i){
             g2o::MatrixN<3, T> _R = R_list[i].cast<T>();
             g2o::VectorN<3 ,T> _t = t_list[i].cast<T>() * _s;
             T _u1(u1_list[i]), _v1(v1_list[i]);
-            // Manifold Transform
-            g2o::VectorN<3, T> _p0c = _Rcl * _p0 + _tcl;
-            g2o::VectorN<3, T> _n0c = _Rcl * _n0;
-        
-            T _Cxz = (_u0 - _cx)/_fx;
-            T _Cyz = (_v0 - _cy)/_fy;
-            T _Z0 = _n0c.dot(_p0c) / (_Cxz*_n0c(0) + _Cyz*_n0c(1) + _n0c(2));
-            T _X0 = _Cxz * _Z0;
-            T _Y0 = _Cyz * _Z0;
-            g2o::VectorN<3, T> _P0(_X0, _Y0, _Z0);
+
             g2o::VectorN<3, T> _P1 = _R * _P0 + _t;
             T _u1_obs = _fx*_P1(0)/_P1(2) + _cx;
             T _v1_obs = _fy*_P1(1)/_P1(2) + _cy;
@@ -229,10 +228,10 @@ public:
         std::tie(_Rcl, _tcl, _s) = Sim3Exp<T>(data); // Template Sim3 Map
         T _fx(fx), _fy(fy), _cx(cx), _cy(cy), _u0(u0), _v0(v0);
         std::vector<g2o::VectorN<2, T>> _train_x;  // transformed neighbour points
-        g2o::MatrixN<Eigen::Dynamic, T> _train_y;
+        VectorX<T> _train_y;
         g2o::VectorN<2, T> _test_x = {_u0, _v0};
         _train_x.resize(neigh_pts.size());
-        _train_y.resize(neigh_pts.size(), 1);
+        _train_y.resize(neigh_pts.size());
         for(std::size_t neigh_i = 0; neigh_i < neigh_pts.size(); ++neigh_i)
         {
             g2o::VectorN<3 ,T> _tf_pt = _Rcl * neigh_pts[neigh_i].cast<T>() + _tcl;

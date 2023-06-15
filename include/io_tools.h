@@ -13,10 +13,11 @@
  * @param filename 
  * @param point_cloud 
  * @param skip read one point per "skip" points, skip=1 menas loading all points
+ * @param only_positive_x set true if you only want to load points with positive x
  * @return true 
  * @return false 
  */
-bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZI> &point_cloud, unsigned short skip=1)
+bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZI> &point_cloud, unsigned short skip=1, bool only_positive_x=false)
 {
     std::string suffix = filename.substr(filename.find_last_of('.') + 1);
     std::size_t cnt = 0;
@@ -34,7 +35,7 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZI> 
         {
             binfile.seekg(0, std::ios::end);
             const auto file_size = binfile.tellg();
-            std::size_t num_points = file_size / 4; 
+            std::size_t num_points = file_size / 16; // 1 float takes 4 bytes, one point (XYZI) is composed of four floats 
             binfile.seekg(0, std::ios::beg);
             point_cloud.reserve(num_points / skip);
             for(std::size_t i = 0; i <= num_points - skip; i += skip)
@@ -42,6 +43,13 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZI> 
                 float s;
                 pcl::PointXYZI point;
                 binfile.read((char*)&s,sizeof(float));
+                if(only_positive_x && (s <= 0))
+                {
+                    binfile.read((char*)&s,sizeof(float));
+                    binfile.read((char*)&s,sizeof(float));
+                    binfile.read((char*)&s,sizeof(float));
+                    continue;
+                }
                 point.x = s;
                 binfile.read((char*)&s,sizeof(float));
                 point.y = s;
@@ -49,13 +57,13 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZI> 
                 point.z = s;
                 binfile.read((char*)&s,sizeof(float));
                 point.intensity = s;
-                point_cloud.push_back(point);
+                point_cloud.push_back(std::move(point));
             }
         }
         binfile.close();
         return true;
     }else{
-        throw std::invalid_argument("Error read Type, got " + suffix +" ,must be .bin or .pcd");
+        throw std::invalid_argument("Error read Type, got " + filename +" , its suffix must be .bin or .pcd");
         return false;
     }
 }
@@ -67,10 +75,11 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZI> 
  * @param filename 
  * @param point_cloud 
  * @param skip read one point per "skip" points, skip=1 menas loading all points
+ * @param only_positive_x set true if you only want to load points with positive x
  * @return true 
  * @return false 
  */
-bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZ> &point_cloud, unsigned short skip=1)
+bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZ> &point_cloud, unsigned short skip=1, bool only_positive_x=false)
 {
     std::string suffix = filename.substr(filename.find_last_of('.') + 1);
     std::size_t cnt = 0;
@@ -88,7 +97,7 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZ> &
         {
             binfile.seekg(0, std::ios::end);
             const auto file_size = binfile.tellg();
-            std::size_t num_points = file_size / 4; 
+            std::size_t num_points = file_size / 16; // 1 float takes 4 bytes, one point (XYZI) is composed of four floats 
             binfile.seekg(0, std::ios::beg);
             point_cloud.reserve(num_points / skip);
             for(std::size_t i = 0; i <= num_points - skip; i += skip)
@@ -96,13 +105,20 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZ> &
                 float s;
                 pcl::PointXYZ point;
                 binfile.read((char*)&s,sizeof(float));
+                if(only_positive_x && (s <= 0))
+                {
+                    binfile.read((char*)&s,sizeof(float));
+                    binfile.read((char*)&s,sizeof(float));
+                    binfile.read((char*)&s,sizeof(float));
+                    continue;
+                }
                 point.x = s;
                 binfile.read((char*)&s,sizeof(float));
                 point.y = s;
                 binfile.read((char*)&s,sizeof(float));
                 point.z = s;
                 binfile.read((char*)&s,sizeof(float));
-                point_cloud.push_back(point);
+                point_cloud.push_back(std::move(point));
             }
         }
         binfile.close();
@@ -119,10 +135,11 @@ bool readPointCloud(const std::string filename, pcl::PointCloud<pcl::PointXYZ> &
  * @param filename 
  * @param points vector of xyz points
  * @param skip read one point per "skip" points, skip=1 menas loading all points
+ * @param only_positive_x set true if you only want to load points with positive x
  * @return true 
  * @return false 
  */
-bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &points, unsigned short skip=1)
+bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &points, unsigned short skip=1, bool only_positive_x=false)
 {
     std::string suffix = filename.substr(filename.find_last_of('.') + 1);
     std::size_t cnt = 0;
@@ -145,7 +162,7 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &po
         {
             binfile.seekg(0, std::ios::end);
             const auto file_size = binfile.tellg();
-            std::size_t num_points = file_size / 4; 
+            std::size_t num_points = file_size / 16; // 1 float takes 4 bytes, one point (XYZI) is composed of four floats 
             binfile.seekg(0, std::ios::beg);
             points.reserve(num_points / skip);
             for(std::size_t i = 0; i <= num_points - skip; i += skip)
@@ -153,6 +170,13 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &po
                 float s;
                 Eigen::Vector3d point;
                 binfile.read((char*)&s,sizeof(float));
+                if(only_positive_x && (s <= 0))
+                {
+                    binfile.read((char*)&s,sizeof(float));
+                    binfile.read((char*)&s,sizeof(float));
+                    binfile.read((char*)&s,sizeof(float));
+                    continue;
+                }
                 point(0) = s;
                 binfile.read((char*)&s,sizeof(float));
                 point(1) = s;
@@ -160,7 +184,7 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &po
                 point(2) = s;
                 binfile.read((char*)&s,sizeof(float));
                 // s is intensity and won't be loaded to Vector3d
-                points.push_back(point);
+                points.push_back(std::move(point));
             }
         }
         binfile.close();
@@ -177,10 +201,11 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector3d> &po
  * @param filename 
  * @param points vector of xyzi points
  * @param skip read one point per "skip" points, skip=1 menas loading all points
+ * @param only_positive_x set true if you only want to load points with positive x
  * @return true 
  * @return false 
  */
-bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &points, unsigned short skip=1)
+bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &points, unsigned short skip=1, bool only_positive_x=false)
 {
     std::string suffix = filename.substr(filename.find_last_of('.') + 1);
     std::size_t cnt = 0;
@@ -203,7 +228,7 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &po
         {
             binfile.seekg(0, std::ios::end);
             const auto file_size = binfile.tellg();
-            std::size_t num_points = file_size / 4; 
+            std::size_t num_points = file_size / 16; // 1 float takes 4 bytes, one point (XYZI) is composed of four floats 
             binfile.seekg(0, std::ios::beg);
             points.reserve(num_points / skip);
             for(std::size_t i = 0; i <= num_points - skip; i += skip)
@@ -211,6 +236,13 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &po
                 float s;
                 Eigen::Vector4d point;
                 binfile.read((char*)&s,sizeof(float));
+                if(only_positive_x && (s <= 0))
+                {
+                    binfile.read((char*)&s,sizeof(float));
+                    binfile.read((char*)&s,sizeof(float));
+                    binfile.read((char*)&s,sizeof(float));
+                    continue;
+                }
                 point(0) = s;
                 binfile.read((char*)&s,sizeof(float));
                 point(1) = s;
@@ -218,7 +250,7 @@ bool readPointCloud(const std::string filename, std::vector<Eigen::Vector4d> &po
                 point(2) = s;
                 binfile.read((char*)&s,sizeof(float));
                 point(3) = s;
-                points.push_back(point);
+                points.push_back(std::move(point));
             }
         }
         binfile.close();
