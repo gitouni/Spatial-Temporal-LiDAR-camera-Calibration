@@ -9,10 +9,9 @@
 #include "io_tools.h"
 #include "kitti_tools.h"
 #include "pointcloud.h"
-#include "IBACalib2.hpp"
+#include "IBACalib.hpp"
 #include <mutex>
-#include <unordered_set>
-#include <omp.h>
+#include <set>
 
 typedef std::uint32_t IndexType; // other types cause error, why?
 typedef std::vector<IndexType> VecIndex;
@@ -20,23 +19,28 @@ typedef std::pair<IndexType, IndexType> CorrType;
 typedef std::vector<CorrType> CorrSet;
 typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector2d, double, 2, nanoflann::metric_L2_Simple, IndexType> KDTree2D;
 typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector3d, double, 3, nanoflann::metric_L2_Simple, IndexType> KDTree3D;
-
+typedef g2o::BlockSolver<g2o::BlockSolverTraits<7, 1>> BlockSolverType; // the second template parameter is not used unless Schur Complement is used
+typedef g2o::LinearSolverCholmod<BlockSolverType::PoseMatrixType> LinearSolverType; // Linear Solver Type
 
 class IBAPlaneParams{
 public:
     IBAPlaneParams(){};
 public:
     double max_pixel_dist = 1.5;
+    int num_best_convis = 3;
     int min_covis_weight = 100;
     int kdtree2d_max_leaf_size = 10;
     int kdtree3d_max_leaf_size = 30;
     double norm_radius = 0.6;
     int norm_max_pts = 30;
+    int max_iba_iter = 30;
+    int inner_iba_iter = 10;
     double robust_kernerl_delta = 2.98;
     double sq_err_threshold = 225.;
+    int PointCloudSkip = 1;
+    bool PointCloudOnlyPositiveX = false;
     bool verborse = true;
 };
-
 
 
 void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyFrame* pKF,
@@ -130,45 +134,31 @@ std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, 
     }
     return {normals, valid_indices};
 }
-void initInput(double* params, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames, const g2o::Vector7& init_sim3_log, std::unordered_map<int, int> &KFIdMap)
-{
-    KFIdMap.reserve(KeyFrames.size());
-    std::copy(init_sim3_log.data(), init_sim3_log.data()+7, params);
-    int posei = 0;
-    for(auto &pKF:KeyFrames)
-    {
-        cv::Mat pose = pKF->GetPose();
-        Eigen::Matrix4d poseEigen;
-        cv::cv2eigen(pose, poseEigen);
-        g2o::Vector6 se3_log = SE3Log(poseEigen.topLeftCorner(3, 3), poseEigen.topRightCorner(3, 1));
-        std::copy(se3_log.data(), se3_log.data() + 6, params + 7 + posei*6);
-        KFIdMap.insert(std::make_pair(int(pKF->mnId), posei));
-        posei += 1;
-    }
-}
 
-
-void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames,
-    const std::unordered_map<int, int> &KFIdMap, double* params, ceres::Problem &problem, const IBAPlaneParams &iba_params)
+void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames,
+    const g2o::Vector7 &init_sim3_log , g2o::SparseOptimizer &optimizer, const IBAPlaneParams &iba_params)
 {
-    
     int cnt = 0;
     int edge_cnt = 0;
-    double* const pose = params + 7;  // pose pointer position
+    optimizer.clear();
+    VertexSim3* v = new VertexSim3();
+    v->setEstimate(init_sim3_log);
+    v->setId(0);
+    optimizer.addVertex(v);
     Eigen::Matrix3d init_rotation;
     Eigen::Vector3d init_translation;
     double init_scale;
-    std::tie(init_rotation, init_translation, init_scale) = Sim3Exp<double>(params);
+    std::tie(init_rotation, init_translation, init_scale) = Sim3Exp<double>(init_sim3_log.data());
     Eigen::Matrix4d initSE3_4x4(Eigen::Matrix4d::Identity());
     initSE3_4x4.topLeftCorner(3, 3) = init_rotation;
     initSE3_4x4.topRightCorner(3, 1) = init_translation;
     Eigen::Isometry3d initSE3;
     initSE3.matrix() = initSE3_4x4;
-    #pragma omp parallel for schedule(static) reduction(+:cnt)
-    for(std::size_t Fi = 0; Fi < PointClouds.size(); ++Fi)
+    #pragma omp parallel for schedule(static)
+    for(std::size_t Fi = 0; Fi < PointCloudFiles.size(); ++Fi)
     {
-        VecVector3d points = PointClouds[Fi];  // copy
-        VecVector3d normals;
+        VecVector3d points, normals;
+        readPointCloud(PointCloudFiles[Fi], points, iba_params.PointCloudSkip, iba_params.PointCloudOnlyPositiveX);
         ORB_SLAM2::KeyFrame* pKF = KeyFrames[Fi];
         const double H = pKF->mnMaxY, W = pKF->mnMaxX;
         TransformPointCloudInplace(points, initSE3); // Transfer to Camera coordinate
@@ -176,18 +166,24 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         FindProjectCorrespondences(points, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
         if(corrset.size() < 50)
             continue;
-        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);  // for debug
+        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames;
+        if(iba_params.num_best_convis > 0)
+            ConvisKeyFrames = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);  // for debug
+        else
+        {
+            ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
+            if(ConvisKeyFrames.size() > 10)
+                ConvisKeyFrames.resize(10);  // maximum memory cache of g2o edges
+        }
+            
         std::vector<std::map<int, int>> KptMapList; // Keypoint-Keypoint Corr
         std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
-        std::set<int> srcKptIndices;  // Matched Keypoints in the Reference KeyFrame
         KptMapList.reserve(ConvisKeyFrames.size());
         relPoseList.reserve(ConvisKeyFrames.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
         for(auto pKFConv:ConvisKeyFrames)
         {
             auto KptMap = pKF->GetMatchedKptIds(pKFConv);
-            for(auto &kpt_pair:KptMap)
-                srcKptIndices.insert(kpt_pair.first);
             cv::Mat relPose = pKFConv->GetPose() * invRefPose;  // Transfer from c1 coordinate to c2 coordinate
             Eigen::Matrix4d relPoseEigen;
             cv::cv2eigen(relPose, relPoseEigen);
@@ -196,12 +192,8 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         }
         VecIndex indices; // valid indices for projecion
         VecIndex subindices; // valid subindices of `indices` through normal computing
-        indices.reserve(corrset.size());
         for(const CorrType &corr:corrset)
-        {
-            if(srcKptIndices.count(corr.first) > 0)  // Lidar-Keypoint corr in Keypoint-Keypoint corr
-                indices.push_back(corr.second);
-        }
+            indices.push_back(corr.second);
         std::tie(normals, subindices) = ComputeLocalNormal(points, indices, iba_params.norm_radius, iba_params.kdtree3d_max_leaf_size, iba_params.norm_max_pts);
         
         for(std::size_t sub_idx = 0; sub_idx < subindices.size(); ++ sub_idx)
@@ -215,9 +207,8 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             Eigen::Vector3d p0 = initSE3.inverse() * points[point3d_idx];  // cooresponding point (LiDAR coord)
             Eigen::Vector3d n0 = initSE3_4x4.topLeftCorner(3, 3).transpose() * normals[sub_idx];  // cooresponding point normal (LiDAR coord)
             std::vector<double> u1_list, v1_list;
-            std::vector<double*> param_blocks;
-            param_blocks.push_back(params); // extrinsic log
-            param_blocks.push_back(params + 7 + 6*Fi); // Reference Pose
+            std::vector<Eigen::Matrix3d> R_list;
+            std::vector<Eigen::Vector3d> t_list;
             for(std::size_t pKFConvi = 0; pKFConvi < ConvisKeyFrames.size(); ++pKFConvi){
                 auto pKFConv = ConvisKeyFrames[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
@@ -229,29 +220,40 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
                 Eigen::Matrix4d relPose = relPoseList[pKFConvi];  // Twc2 * inv(Twc1)
                 u1_list.push_back(u1);
                 v1_list.push_back(v1);
-                int ConvFi = KFIdMap.at(pKFConv->mnId);
-                param_blocks.push_back(params + 7 + 6*ConvFi);
+                R_list.push_back(relPose.topLeftCorner(3, 3));
+                t_list.push_back(relPose.topRightCorner(3, 1));             
+                
             }
-            if(u1_list.size() == 0)
+            int ErrorDim = u1_list.size();
+            if(ErrorDim == 0)
                 continue; // Should Not Run into
-            ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernerl_delta * u1_list.size());
-            ceres::CostFunction *cost_function = UIBA_PlaneFactor::Create(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0,
-                u1_list, v1_list, p0, n0);
-            problem.AddResidualBlock(cost_function, loss_function, param_blocks);
-            ++edge_cnt;  // valid factor count
+            IBAPlaneEdge* e = new IBAPlaneEdge(pKF->fx, pKF->fy, pKF->cx, pKF->cy,
+             u0, v0, u1_list, v1_list,
+             p0, n0, R_list, t_list);
+            e->setId(edge_cnt++);
+            e->setVertex(0, v);
+            g2o::MatrixN<20> I;
+            I.setIdentity();
+            e->setInformation(I / double(ErrorDim));
+            g2o::RobustKernelHuber* rk(new g2o::RobustKernelHuber);
+            rk->setDelta(iba_params.robust_kernerl_delta);
+            e->setRobustKernel(rk);
+            optimizer.addEdge(e);
         }
-        ++cnt; // total iterations
+        
         #pragma omp critical
         {
+            ++cnt;
             if(iba_params.verborse && (cnt % 100 == 0)){
-                char msg[80];
-                std::sprintf(msg, "Problem Building: %0.2lf %% finished (%d iters | %d factors)", (100.0*cnt)/PointClouds.size(),cnt, edge_cnt);
+                char msg[100];
+                sprintf(msg, "Optimizer Building: %0.2lf %% finished (%d item %d edges)", (100.0*cnt)/PointCloudFiles.size(),cnt, edge_cnt);
                 std::cout << msg << std::endl;
             }
         }
+        
     }
     if(iba_params.verborse)
-        std::cout << "" << edge_cnt << " factors has been added." << std::endl;
+        std::cout << "" << edge_cnt << " edges has been added." << std::endl;
 }
 
 
@@ -269,7 +271,7 @@ int main(int argc, char** argv){
     std::string pointcloud_dir = io_config["PointCloudDir"].as<std::string>();
     checkpath(base_dir);
     checkpath(pointcloud_dir);
-    std::vector<std::string> RawPointCloudFiles;
+    std::vector<std::string> RawPointCloudFiles, PointCloudFiles;
     listdir(RawPointCloudFiles, pointcloud_dir);
     std::vector<Eigen::Isometry3d> vTwc, vTwl, vTwlraw;
     // IO Config
@@ -287,6 +289,7 @@ int main(int argc, char** argv){
     // runtime config
     IBAPlaneParams iba_params;
     iba_params.max_pixel_dist = runtime_config["max_pixel_dist"].as<double>();
+    iba_params.num_best_convis = runtime_config["num_best_convis"].as<double>();
     iba_params.min_covis_weight = runtime_config["min_covis_weight"].as<int>();
     iba_params.kdtree2d_max_leaf_size = runtime_config["kdtree2d_max_leaf_size"].as<int>();
     iba_params.kdtree3d_max_leaf_size = runtime_config["kdtree3d_max_leaf_size"].as<int>();
@@ -294,6 +297,8 @@ int main(int argc, char** argv){
     iba_params.norm_max_pts = runtime_config["norm_max_pts"].as<int>();
     iba_params.sq_err_threshold = runtime_config["sq_err_threshold"].as<double>();
     iba_params.robust_kernerl_delta = runtime_config["robust_kernerl_delta"].as<double>();
+    iba_params.PointCloudSkip = io_config["PointCloudSkip"].as<int>();
+    iba_params.PointCloudOnlyPositiveX = io_config["PointCloudOnlyPositiveX"].as<bool>();
     const int max_iba_iter = runtime_config["max_iba_iter"].as<int>();
     const int inner_iba_iter = runtime_config["inner_iba_iter"].as<int>();
     iba_params.verborse = runtime_config["verborse"].as<bool>();
@@ -301,22 +306,11 @@ int main(int argc, char** argv){
     YAML::Node FrameIdCfg = YAML::LoadFile(KyeFrameIdFile);
     std::vector<int> vKFFrameId = FrameIdCfg["mnFrameId"].as<std::vector<int>>();
     // Pre-allocate memory to enhance peformance
-    std::vector<VecVector3d> PointClouds;
-    PointClouds.resize(vKFFrameId.size());
-    std::size_t KFcnt = 0;
-    #pragma omp parallel for schedule(static) reduction(+:KFcnt)
-    for(std::size_t i = 0; i < vKFFrameId.size(); ++i)
+
+    PointCloudFiles.reserve(vKFFrameId.size());
+    for(auto &KFId:vKFFrameId)
     {
-        auto KFId = vKFFrameId[i];
-        VecVector3d PointCloud;
-        readPointCloud(pointcloud_dir + RawPointCloudFiles[KFId], PointCloud);
-        PointClouds[i] = std::move(PointCloud);
-        KFcnt++;
-        #pragma omp critical
-        {
-            if(iba_params.verborse && (KFcnt) % 100 ==0)
-                std::printf("Read PointCloud %0.2lf %%\n", 100.0*(KFcnt)/vKFFrameId.size());
-        }
+        PointCloudFiles.push_back(pointcloud_dir + RawPointCloudFiles[KFId]);
     }
     RawPointCloudFiles.clear(); 
 
@@ -332,35 +326,38 @@ int main(int argc, char** argv){
     std::cout << "Rotation:\n" << rigid.topLeftCorner(3, 3) << std::endl;
     std::cout << "Translation: " << rigid.topRightCorner(3, 1).transpose() << std::endl;
     std::cout << "Scale: " << scale << std::endl;
-    g2o::Vector7 init_sim3_log = Sim3Log(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1), scale);
-    std::unordered_map<int, int> KFIdMap;
-    double params[7 + 6 * KeyFrames.size()];
-    
-    initInput(params, KeyFrames, init_sim3_log, KFIdMap);
+    auto solver = new g2o::OptimizationAlgorithmDogleg(
+        g2o::make_unique<BlockSolverType>(g2o::make_unique<LinearSolverType>()));
+    g2o::SparseOptimizer optimizer;     // 图模型
+    optimizer.setAlgorithm(solver);   // 设置求解器
+    optimizer.setVerbose(iba_params.verborse);       // 打开调试输出
+    bool multithread_flag = optimizer.initMultiThreading();
+    if(!multithread_flag)
+        std::cerr << "use multithread for g2o failed!" << std::endl;
+    g2o::SE3Quat quat(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1));
+    g2o::Vector7 sim3_log;
+    sim3_log.head<6>() = quat.log();
+    sim3_log(6) = scale;
     Eigen::Matrix3d optimizedRotation; Eigen::Vector3d optimizedTranslation; double optimizedScale;
     for(int iba_iter = 0; iba_iter < max_iba_iter; ++ iba_iter)
     {
-        ceres::Solver::Options options;
-        options.max_num_iterations = 30;
-        options.minimizer_progress_to_stdout = true;
-        options.num_threads = omp_get_max_threads(); // use all threads
-        options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
-        options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
-        ceres::Problem problem;
-        BuildProblem(PointClouds, KeyFrames, KFIdMap, params, problem, iba_params);
-        ceres::Solver::Summary summary;
-        ceres::Solve(options, &problem, &summary);
-
+        BuildOptimizer(PointCloudFiles, KeyFrames, sim3_log, optimizer, iba_params);
+        optimizer.initializeOptimization(0);
+        optimizer.optimize(inner_iba_iter);
+        const VertexSim3* v = dynamic_cast<VertexSim3*>(optimizer.vertex(0));
+        sim3_log = v->estimate();
         if(iba_params.verborse)
         {
-            std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(params);
-            std::cout << "IBA iter = \033[33;1m" << iba_iter << "\033[0m" << std::endl;
+            std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(sim3_log.data());
+            std::cout << "IBA iter = " << iba_iter << std::endl;
             std::cout << "Rotation:\n" << optimizedRotation << std::endl;
             std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;
             std::cout << "Scale: " << optimizedScale << std::endl;
+            auto logger = g2oLogEdges<IBAPlaneEdge>(optimizer);
+            print_map("Statics of Edge Error", logger);
         }
     }
-    std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(params);
+    std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(sim3_log.data());
     std::cout << "Final Result: " << std::endl;
     std::cout << "Rotation:\n" << optimizedRotation << std::endl;
     std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;

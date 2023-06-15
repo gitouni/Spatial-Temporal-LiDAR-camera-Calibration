@@ -41,6 +41,7 @@ public:
     std::vector<double> lb;
     std::vector<double> ub;
     int PointCloudskip = 1;
+    bool PointCloudOnlyPositiveX = false;
     int max_bbeval = 200;
     bool verborse = true;
     int curr_eval = 0;
@@ -365,6 +366,7 @@ int main(int argc, char** argv){
     iba_params.lb = runtime_config["lb"].as<std::vector<double>>();
     iba_params.ub = runtime_config["ub"].as<std::vector<double>>();
     iba_params.PointCloudskip = io_config["PointCloudskip"].as<int>();
+    iba_params.PointCloudOnlyPositiveX = io_config["PointCloudOnlyPositiveX"].as<bool>();
     iba_params.max_bbeval = runtime_config["max_bbeval"].as<int>();
     iba_params.verborse = runtime_config["verborse"].as<bool>();
 
