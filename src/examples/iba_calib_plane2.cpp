@@ -29,13 +29,14 @@ public:
     double max_pixel_dist = 1.5;
     int num_best_convis = 3;
     int min_covis_weight = 100;
+    int num_min_corr = 30;
     int kdtree2d_max_leaf_size = 10;
     int kdtree3d_max_leaf_size = 30;
     double norm_radius = 0.6;
     int norm_max_pts = 30;
     int max_iba_iter = 30;
     int inner_iba_iter = 10;
-    double robust_kernerl_delta = 2.98;
+    double robust_kernel_delta = 2.98;
     double sq_err_threshold = 225.;
     int PointCloudSkip = 1;
     bool PointCloudOnlyPositiveX = false;
@@ -186,7 +187,7 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         TransformPointCloud(PointClouds[Fi], points, initSE3);
         CorrSet corrset; // pair of (idx of image points, idx of pointcloud points)
         FindProjectCorrespondences(points, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
-        if(corrset.size() < 50)
+        if(corrset.size() < iba_params.num_min_corr)
             continue;
         std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames;
         if(iba_params.num_best_convis > 0)
@@ -216,9 +217,9 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         std::tie(normals, subindices) = ComputeLocalNormal(PointClouds[Fi], PointKDTrees[Fi].get(), indices, iba_params.norm_radius, iba_params.norm_max_pts);
         for(std::size_t sub_idx = 0; sub_idx < subindices.size(); ++ sub_idx)
         {
-            const IndexType idx = subindices[sub_idx];  // valid idx in corrset
-            const int point2d_idx = corrset[idx].first;  // KeyPoint Idx matched with PointCloud
-            const int point3d_idx = corrset[idx].second; // Point Idx matched with KeyPoints
+            const IndexType valid_idx = subindices[sub_idx];  // valid idx in corrset
+            const int point2d_idx = corrset[valid_idx].first;  // KeyPoint Idx matched with PointCloud
+            const int point3d_idx = corrset[valid_idx].second; // Point Idx matched with KeyPoints
             double u0 = pKF->mvKeysUn[point2d_idx].pt.x;
             double v0 = pKF->mvKeysUn[point2d_idx].pt.y;
             // transform 3d point back to LiDAR coordinate
@@ -243,7 +244,7 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             }
             if(u1_list.size() == 0)
                 continue; // Should Not Run into
-            ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernerl_delta);
+            ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernel_delta);
             ceres::CostFunction *cost_function = IBA_PlaneFactor::Create(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0,
                 u1_list, v1_list, R_list, t_list, p0, n0);
             #pragma omp critical
@@ -307,7 +308,7 @@ int main(int argc, char** argv){
     iba_params.max_iba_iter = runtime_config["max_iba_iter"].as<int>();
     iba_params.inner_iba_iter = runtime_config["inner_iba_iter"].as<int>();
     iba_params.sq_err_threshold = runtime_config["sq_err_threshold"].as<double>();
-    iba_params.robust_kernerl_delta = runtime_config["robust_kernerl_delta"].as<double>();
+    iba_params.robust_kernel_delta = runtime_config["robust_kernel_delta"].as<double>();
     iba_params.PointCloudSkip = io_config["PointCloudSkip"].as<int>();
     iba_params.PointCloudOnlyPositiveX = io_config["PointCloudOnlyPositiveX"].as<bool>();
     const int max_iba_iter = runtime_config["max_iba_iter"].as<int>();

@@ -32,7 +32,7 @@ public:
     int kdtree3d_max_leaf_size = 30;
     double norm_radius = 0.6;
     int norm_max_pts = 30;
-    double robust_kernerl_delta = 2.98;
+    double robust_kernel_delta = 2.98;
     double sq_err_threshold = 225.;
     bool verborse = true;
 };
@@ -225,7 +225,7 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
             I.setIdentity();
             e->setInformation(I);
             g2o::RobustKernelHuber* rk(new g2o::RobustKernelHuber);
-            rk->setDelta(params.robust_kernerl_delta);
+            rk->setDelta(params.robust_kernel_delta);
             e->setRobustKernel(rk);
             optimizer.addEdge(e);
         }
@@ -280,7 +280,7 @@ int main(int argc, char** argv){
     params.norm_radius = runtime_config["norm_radius"].as<double>();
     params.norm_max_pts = runtime_config["norm_max_pts"].as<int>();
     params.sq_err_threshold = runtime_config["sq_err_threshold"].as<double>();
-    params.robust_kernerl_delta = runtime_config["robust_kernerl_delta"].as<double>();
+    params.robust_kernel_delta = runtime_config["robust_kernel_delta"].as<double>();
     const int max_iba_iter = runtime_config["max_iba_iter"].as<int>();
     const int inner_iba_iter = runtime_config["inner_iba_iter"].as<int>();
     params.verborse = runtime_config["verborse"].as<bool>();

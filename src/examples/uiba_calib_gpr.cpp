@@ -32,7 +32,7 @@ public:
     int kdtree3d_max_leaf_size = 30;
     double neigh_radius = 0.6;
     int neigh_max_pts = 30;
-    double robust_kernerl_delta = 2.98;
+    double robust_kernel_delta = 2.98;
     double init_sigma = 10.;
     double init_l = 10.;
     double sigma_noise = 1e-10;
@@ -276,7 +276,7 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             }
             if(u1_list.size() == 0)
                 continue; // Should Not Run into
-            ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernerl_delta);
+            ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernel_delta);
             ceres::CostFunction *cost_function = UIBA_GPRFactor::Create(
                 iba_params.init_sigma, iba_params.init_l, iba_params.sigma_noise, neighbor_pts, pKF->fx, pKF->fy,
                 pKF->cx, pKF->cy, u0, v0, u1_list, v1_list, iba_params.optimize_gpr, iba_params.verborse
@@ -342,7 +342,7 @@ int main(int argc, char** argv){
     iba_params.init_l = runtime_config["init_l"].as<double>();
     iba_params.sigma_noise = runtime_config["sigma_noise"].as<double>();
     iba_params.optimize_gpr = runtime_config["optimize_gpr"].as<bool>();
-    iba_params.robust_kernerl_delta = runtime_config["robust_kernerl_delta"].as<double>();
+    iba_params.robust_kernel_delta = runtime_config["robust_kernel_delta"].as<double>();
     iba_params.PointCloudSkip = io_config["PointCloudSkip"].as<int>();
     iba_params.PointCloudOnlyPositiveX = io_config["PointCloudOnlyPositiveX"].as<bool>();
     const int max_iba_iter = runtime_config["max_iba_iter"].as<int>();

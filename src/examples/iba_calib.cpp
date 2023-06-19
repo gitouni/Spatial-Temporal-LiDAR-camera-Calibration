@@ -38,7 +38,7 @@ public:
     double neigh_radius = 0.6;  // build local manifold within this radius
     int neigh_max_pts = 30;  // maximum points included in one local manifold (use KNN for first search)
     double pl_eval_factor = 10.; // if the maximum eigen value of cross-variance matrix more than "pl_eval_factor" times the other two, build Plane rather than GPR
-    double robust_kernerl_delta = 4.;  // Delta Arg for Robust Huber Kernel 
+    double robust_kernel_delta = 4.;  // Delta Arg for Robust Huber Kernel 
     bool verborse = true; // set to true for debugging
 };
 
@@ -231,7 +231,7 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
                 e->setVertex(0, v);
                 e->setInformation(Eigen::Matrix2d::Identity());
                 g2o::RobustKernelHuber* rk(new g2o::RobustKernelHuber);
-                rk->setDelta(params.robust_kernerl_delta);
+                rk->setDelta(params.robust_kernel_delta);
                 e->setRobustKernel(rk);
                 optimizer.addEdge(e);
                 
@@ -287,7 +287,7 @@ int main(int argc, char** argv){
     params.kdtree3d_max_leaf_size = runtime_config["kdtree3d_max_leaf_size"].as<int>();
     params.neigh_radius = runtime_config["neigh_radius"].as<double>();
     params.neigh_max_pts = runtime_config["neigh_max_pts"].as<int>();
-    params.robust_kernerl_delta = runtime_config["robust_kernerl_delta"].as<double>();
+    params.robust_kernel_delta = runtime_config["robust_kernel_delta"].as<double>();
     const int max_iba_iter = runtime_config["max_iba_iter"].as<int>();
     const int inner_iba_iter = runtime_config["inner_iba_iter"].as<int>();
     params.verborse = runtime_config["verborse"].as<bool>();

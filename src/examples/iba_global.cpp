@@ -37,6 +37,10 @@ public:
     double corr_3d_2d_threshold = 40.;
     double corr_3d_3d_threshold = 5.;
     double he_threshold = 0.05;
+    int norm_max_pts = 30;
+    double norm_radius = 0.6;
+    double norm_reg_threshold = 0.04;
+    double min_diff_dist = 0.01;
     std::vector<double> err_weight;
     std::vector<double> lb;
     std::vector<double> ub;
@@ -92,6 +96,59 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
 }
 
 /**
+ * @brief  * @brief Return Nearest Dist between query point and PointCloud 
+ * Use Point-Plane Dist first, and degenerate to Point-Point Dist if the last failed
+ * 
+ * @param kdtree 
+ * @param PointCloud 
+ * @param query_pt 
+ * @param norm_max_pts 
+ * @param norm_radius 
+ * @param norm_reg_threshold 
+ * @param min_diff_dist 
+ * @return std::tuple<bool, double> 
+ */
+std::tuple<bool, double> ComputeAlignmentDist(const KDTree3D* kdtree, const VecVector3d &PointCloud, const Eigen::Vector3d &query_pt,
+    int norm_max_pts, double norm_radius, double norm_reg_threshold, double min_diff_dist)
+{
+    VecIndex indices(norm_max_pts);
+    std::vector<double> sq_dist(norm_max_pts);
+    nanoflann::KNNResultSet<double, IndexType> resultSet(norm_max_pts);
+    resultSet.init(indices.data(), sq_dist.data());
+    kdtree->index->findNeighbors(resultSet, query_pt.data(), nanoflann::SearchParameters());
+    std::size_t k = resultSet.size();
+    k = std::distance(sq_dist.begin(),
+                std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
+                                norm_radius * norm_radius)); // iterator difference between start and last valid index
+    indices.resize(k);
+    sq_dist.resize(k);
+    const Eigen::Vector3d &nn_pt = PointCloud[indices[0]];
+    double pt2pt_dist = (nn_pt - query_pt).norm();
+    if(k < 3)
+        return {false, pt2pt_dist};
+    Eigen::Matrix3d covariance = ComputeCovariance(PointCloud, indices);
+    Eigen::Vector3d normal, eval;
+    std::tie(normal, std::ignore) = FastEigen3x3_EV(covariance);
+    normal /= normal.norm();
+    double reg_err = 0;
+    for(auto const &idx:indices)
+        reg_err += (PointCloud[idx] - nn_pt).dot(normal);
+    if(reg_err / indices.size() > norm_reg_threshold)
+        return {false, pt2pt_dist};
+    else
+    {
+        k = std::distance(sq_dist.begin(),
+            std::upper_bound(sq_dist.begin(), sq_dist.begin() + k,
+                            sq_dist[0] + min_diff_dist * min_diff_dist)); // dist difference must > a threshold (|ab - bc| <= ac)
+        if(k == sq_dist.size()) // not s.t. difference condition
+            return {false, pt2pt_dist};
+        double dist = (nn_pt - query_pt).dot(normal);
+        return {true, abs(dist)};
+    }
+    
+}
+
+/**
  * @brief Compute BA Error and HE Constraint
  * 
  * @param xvec 
@@ -109,10 +166,13 @@ std::tuple<double, double, double, int, int> BAError(
 {
     double corr_3d_2d_err = 0; // total error
     double corr_3d_3d_err = 0;
+    // std::vector<double> corr_3d_3d_errlist;
     double Cval = 0; // total HE constraint
     double Ccnt = 0;
     int cnt_3d_2d = 0;
     int valid_cnt_3d_2d = 0;
+    int valid_pl_3d_3d = 0;
+    int valid_pt_3d_3d = 0;
     int cnt_3d_3d = 0;
     int valid_cnt_3d_3d = 0;
     Eigen::Matrix3d rotation;
@@ -125,12 +185,13 @@ std::tuple<double, double, double, int, int> BAError(
     #pragma omp parallel for if(multiprocessing)
     for(std::size_t Fi = 0; Fi < PointClouds.size(); ++Fi)
     {
-        VecVector3d points;
+        const VecVector3d &PL = PointClouds[Fi]; // Point Cloud in Lidar coord
+        VecVector3d PC; // Point Cloud in camera coord
         const ORB_SLAM2::KeyFrame* pKF = KeyFrames[Fi];  
-        TransformPointCloud(PointClouds[Fi], points, Tcl);    
+        TransformPointCloud(PL, PC, Tcl);    
         CorrSet corrset; // pair of (idx of image points, idx of pointcloud points)
         /* Find 3D-2D Correspondence */
-        FindProjectCorrespondences(points, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
+        FindProjectCorrespondences(PC, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
         if(corrset.size() < 30)  // too few correspondences
             continue;
         const cv::Mat InvRefCVPose = pKF->GetPoseInverseSafe();
@@ -147,29 +208,36 @@ std::tuple<double, double, double, int, int> BAError(
             corr_3d_3d_err = 0;
             cnt_3d_3d++;
             valid_cnt_3d_3d++;
+            // corr_3d_3d_errlist.push_back(0);
         }
         else
         {
             for(auto const &[point2d_idx, point3d_idx]:corrset)
             {
-                VecIndex indices(1);
-                std::vector<double> sq_dist(1);
-                nanoflann::KNNResultSet<double, IndexType> resultSet(1);
-                resultSet.init(indices.data(), sq_dist.data());
+                VecIndex indices_cl(1);
+                std::vector<double> sq_dist_cl(1);
+                nanoflann::KNNResultSet<double, IndexType> resultSet_cl(1);
+                resultSet_cl.init(indices_cl.data(), sq_dist_cl.data());
                 if(mapKpt2Mpt.count(point2d_idx) == 0)
                     continue;
                 Eigen::Vector3d MapRefPose;
                 cv::cv2eigen(mapKpt2Mpt[point2d_idx]->GetWorldPos() * scale, MapRefPose);  // sPw
                 MapRefPose = TcwRS.topLeftCorner(3,3) * MapRefPose + TcwRS.topRightCorner(3,1); // Pci
                 MapRefPose = Tcl.inverse() * MapRefPose;  // Pli
-                KdTrees[Fi]->index->findNeighbors(resultSet, MapRefPose.data(), nanoflann::SearchParameters());
-                double dist = sqrt(sq_dist[0]);
+                bool is_planefit;
+                double dist;
+                std::tie(is_planefit, dist) = ComputeAlignmentDist(KdTrees[Fi].get(), PL, MapRefPose,
+                    iba_params.norm_max_pts, iba_params.norm_radius, iba_params.norm_reg_threshold, iba_params.min_diff_dist);
                 #pragma omp critical
                 {
                     if(dist < iba_params.corr_3d_3d_threshold)
                     {
                         corr_3d_3d_err += dist;
                         valid_cnt_3d_3d++;
+                        if(is_planefit)
+                            valid_pl_3d_3d++;
+                        else
+                            valid_pt_3d_3d++;
                     }
                     cnt_3d_3d++;
                 }
@@ -218,7 +286,7 @@ std::tuple<double, double, double, int, int> BAError(
             const int point3d_idx = corr.second; // Point Idx matched with KeyPoints
             double u0 = pKF->mvKeysUn[point2d_idx].pt.x;
             double v0 = pKF->mvKeysUn[point2d_idx].pt.y;
-            Eigen::Vector3d p0 = points[point3d_idx]; // camera coord
+            Eigen::Vector3d p0 = PC[point3d_idx]; // camera coord
             const double fx = pKF->fx, fy = pKF->fy, cx = pKF->cx, cy = pKF->cy;
             const double H = pKF->mnMaxY, W = pKF->mnMaxX;
             // transform 3d point back to LiDAR coordinate
@@ -255,6 +323,9 @@ std::tuple<double, double, double, int, int> BAError(
     corr_3d_2d_err /= valid_cnt_3d_2d;
     corr_3d_3d_err /= valid_cnt_3d_3d;
     Cval /= Ccnt;
+    // auto logger = LogEdges(corr_3d_3d_errlist);
+    // print_map("corr3d_3d:",logger);
+    std::printf("plane: %d, point: %d\n", valid_pl_3d_3d, valid_pt_3d_3d);
     return {corr_3d_2d_err, corr_3d_3d_err, Cval, valid_cnt_3d_2d, cnt_3d_2d};
 }
 
@@ -361,6 +432,10 @@ int main(int argc, char** argv){
     iba_params.kdtree3d_max_leaf_size = runtime_config["kdtree3d_max_leaf_size"].as<int>();
     iba_params.corr_3d_2d_threshold = runtime_config["corr_3d_2d_threshold"].as<double>();
     iba_params.corr_3d_3d_threshold = runtime_config["corr_3d_3d_threshold"].as<double>();
+    iba_params.norm_max_pts = runtime_config["norm_max_pts"].as<int>();
+    iba_params.norm_radius = runtime_config["norm_radius"].as<double>();
+    iba_params.norm_reg_threshold = runtime_config["norm_reg_threshold"].as<double>();
+    iba_params.min_diff_dist = runtime_config["min_diff_dist"].as<double>();
     iba_params.he_threshold = runtime_config["he_threshold"].as<double>();
     iba_params.err_weight = runtime_config["err_weight"].as<std::vector<double>>();
     iba_params.lb = runtime_config["lb"].as<std::vector<double>>();
@@ -369,7 +444,7 @@ int main(int argc, char** argv){
     iba_params.PointCloudOnlyPositiveX = io_config["PointCloudOnlyPositiveX"].as<bool>();
     iba_params.max_bbeval = runtime_config["max_bbeval"].as<int>();
     iba_params.verborse = runtime_config["verborse"].as<bool>();
-
+    bool use_cache = runtime_config["use_cache"].as<bool>();
     const std::string NomadCacheFile = runtime_config["cacheFile"].as<std::string>();
     const double min_mesh = runtime_config["min_mesh"].as<double>();
     const std::vector<double> init_mesh_size = runtime_config["init_mesh"].as<std::vector<double>>();

@@ -32,7 +32,7 @@ public:
     int kdtree3d_max_leaf_size = 30;
     double norm_radius = 0.6;
     int norm_max_pts = 30;
-    double robust_kernerl_delta = 2.98;
+    double robust_kernel_delta = 2.98;
     double sq_err_threshold = 225.;
     bool verborse = true;
 };
@@ -234,7 +234,7 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             }
             if(u1_list.size() == 0)
                 continue; // Should Not Run into
-            ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernerl_delta * u1_list.size());
+            ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernel_delta);
             ceres::CostFunction *cost_function = UIBA_PlaneFactor::Create(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0,
                 u1_list, v1_list, p0, n0);
             problem.AddResidualBlock(cost_function, loss_function, param_blocks);
@@ -298,7 +298,7 @@ int main(int argc, char** argv){
     iba_params.norm_radius = runtime_config["norm_radius"].as<double>();
     iba_params.norm_max_pts = runtime_config["norm_max_pts"].as<int>();
     iba_params.sq_err_threshold = runtime_config["sq_err_threshold"].as<double>();
-    iba_params.robust_kernerl_delta = runtime_config["robust_kernerl_delta"].as<double>();
+    iba_params.robust_kernel_delta = runtime_config["robust_kernel_delta"].as<double>();
     const int max_iba_iter = runtime_config["max_iba_iter"].as<int>();
     const int inner_iba_iter = runtime_config["inner_iba_iter"].as<int>();
     iba_params.verborse = runtime_config["verborse"].as<bool>();
