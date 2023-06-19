@@ -28,5 +28,5 @@ runtime:
   max_iba_iter: 30
   inner_iba_iter: 10
   sq_err_threshold: 500
-  robust_kernerl_delta: 6.25
+  robust_kernel_delta: 6.25
   verborse: true
