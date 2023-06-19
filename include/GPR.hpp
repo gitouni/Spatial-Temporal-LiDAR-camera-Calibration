@@ -3,7 +3,7 @@
 #include <ceres/ceres.h>
 #include <tuple>
 #include <iostream>
-#include <LBFGSB.h>
+// #include <LBFGSB.h>
 
 using number_t = double;
 
@@ -55,13 +55,10 @@ void self_pdist(const std::vector<Vector2<T> > &X1, MatrixX<T> &Dist){
 
 template <typename T = number_t>
 MatrixX<T> rbf_kernel_2d(const std::vector<Vector2<T> > &X1, const std::vector<Vector2<T> > &X2, const T sigma, const T l){
-    const int cols = X1.size(), rows = X2.size();
     MatrixX<T> dist;
-    dist.resize(rows, cols);
     pdist(X1, X2, dist);
     T sigma2 = sigma * sigma;
     T inv_l2 = T(1.0)/(l*l);
-    T inv_l3 = inv_l2 / l;
     return sigma2 * (-0.5 * inv_l2 * dist).array().exp();  
 }
 
@@ -142,7 +139,94 @@ public:
 
 };
 
-// class GPRHyperLoss final : public ceres::FirstOrderFunction{
+class GPRHyperLoss final : public ceres::FirstOrderFunction{
+public:
+    /**
+     * @brief Construct a new Negative Log Marginal Likelihood Function Object
+     * 
+     * @param _Dist pdist matrix
+     * @param _trY train_y
+     * @param _sigma_noise _sigma_noise
+     */
+    GPRHyperLoss(const MatrixX<> &_Dist, const VectorX<> &_trY, const double &_sigma_noise):
+       Dist(_Dist), trY(_trY), sigma_noise(_sigma_noise){}
+
+    bool Evaluate(const double* parameters, double* cost, double* gradient) const{
+        double sigma = parameters[0];
+        double l = parameters[1];
+        MatrixX<> Kff, L, Kinv;  // (N, N)
+        VectorX<> alpha;  // (N, 1)
+        std::tie(Kff, L ,alpha, Kinv) = compute_K_L_Alpha_Kinv(sigma, l, Dist, trY);
+        int n = alpha.rows();
+        cost[0] = 0.5 * (trY.dot(alpha) + LogDet(L) + n * log(2 * M_PI));
+        if(gradient)
+        {
+            MatrixX<> dK_dsigma, dK_dl;  // (N, N)
+            std::tie(dK_dsigma, dK_dl) = grad_kernel(sigma, l, Kff);
+            MatrixX<> inner_term = alpha * alpha.transpose() - Kinv;  // (N, N)
+            gradient[0] = -0.5 * (inner_term * dK_dsigma).trace();
+            gradient[1] = -0.5 * (inner_term * dK_dl).trace();
+        }
+        return true;
+    }
+
+    int NumParameters() const override { return 2; }
+
+private:
+    const double sigma_noise;
+    const MatrixX<> Dist;
+    const VectorX<> trY;
+
+private:
+    /**
+     * @brief Compute Kff, L, alpha, Kff_inv using Cached pdist and train_y
+     * 
+     * @tparam T typename
+     * @param sigma hyper-parameter
+     * @param l hyper-parameter
+     * @param Dist parwise dist
+     * @param train_y 
+     * @return std::tuple<MatrixX<T>, MatrixX<T>, VectorX<T>, atrixX<> > Kff, L, alpha, Kff_inv
+     */
+    std::tuple<MatrixX<>, MatrixX<>, VectorX<>, MatrixX<> > compute_K_L_Alpha_Kinv(const double sigma ,const double l, MatrixX<> Dist, VectorX<> train_y) const
+    {
+        assert(Dist.rows() == train_y.rows());
+        MatrixX<> Kff = computeCovariance(sigma, l, Dist);
+        Kff += sigma_noise * IdentityLike(Kff);
+        Eigen::LLT<MatrixX<>> llt(Kff);
+        assert(llt.info() == Eigen::Success);  // if failed, enlarge the sigma_noise to ensure the PSD of Kff
+        VectorX<> alpha = llt.solve(train_y);
+        MatrixX<> L = llt.matrixL();
+        MatrixX<> Kinv; // assign Identity first, then solve inplace
+        Kinv.resizeLike(Kff);
+        Kinv.setIdentity();
+        llt.solveInPlace(Kinv);
+        return {Kff, L, alpha, Kinv};
+    }
+
+    MatrixX<> computeCovariance(const double sigma, const double l, MatrixX<> Dist) const
+    {
+        return sigma * sigma * (-0.5 / (l*l) * Dist).array().exp();  // sigma^2 * exp (-0.5 * l^-2 * Dist)
+    }
+
+        /**
+     * @brief gradient of RBF Kenerl
+     * 
+     * @param sigma 
+     * @param l 
+     * @param Kff 
+     * @return std::tuple<double, double> dK_dsigma, dK_dl
+     */
+    std::tuple<MatrixX<>, MatrixX<>> grad_kernel(const double sigma, const double l, const MatrixX<> &Kff) const
+    {
+        Eigen::Vector2d grad; // dK_dsigma, dK_dl
+        double inv_l3 = 1.0/(l*l*l);
+        return {2 * sigma * Kff, Kff * Dist  * inv_l3};
+    }
+
+};
+
+// class NLML{
 // public:
 //     /**
 //      * @brief Construct a new Negative Log Marginal Likelihood Function Object
@@ -151,34 +235,36 @@ public:
 //      * @param _trY train_y
 //      * @param _sigma_noise _sigma_noise
 //      */
-//     GPRHyperLoss(const MatrixX<> &_Dist, const VectorX<> &_trY, const double &_sigma_noise):
-//        sigma_noise(_sigma_noise), Dist(_Dist), trY(_trY){}
-
-//     bool Evaluate(const double* parameters, double* cost, double* gradient) const{
-//         double sigma = parameters[0];
-//         double l = parameters[1];
+//     NLML(const MatrixX<> &_Dist, const VectorX<> &_trY, const double &_sigma_noise):
+//         Dist(_Dist), trY(_trY), sigma_noise(_sigma_noise){}
+//      /**
+//      * @brief negative log marginal likelihood
+//      * 
+//      * @param x 
+//      * @param g 
+//      * @return double 
+//      */
+//     double operator()(const Eigen::VectorXd &x, Eigen::VectorXd &g)
+//     {
+//         double sigma = x[0], l = x[1];
 //         MatrixX<> Kff, L, Kinv;  // (N, N)
 //         VectorX<> alpha;  // (N, 1)
 //         std::tie(Kff, L ,alpha, Kinv) = compute_K_L_Alpha_Kinv(sigma, l, Dist, trY);
 //         int n = alpha.rows();
-//         cost[0] = 0.5 * (trY.dot(alpha) + LogDet(L) + n * log(2 * M_PI));
-//         if(gradient)
-//         {
-//             MatrixX<> dK_dsigma, dK_dl;  // (N, N)
-//             std::tie(dK_dsigma, dK_dl) = grad_kernel(sigma, l, Kff);
-//             MatrixX<> inner_term = alpha * alpha.transpose() - Kinv;  // (N, N)
-//             gradient[0] = -0.5 * (inner_term * dK_dsigma).trace();
-//             gradient[1] = -0.5 * (inner_term * dK_dl).trace();
-//         }
-//         return true;
+//         double fval = 0.5 * (trY.dot(alpha) + LogDet(L) + n * log(2 * M_PI));
+//         MatrixX<> dK_dsigma, dK_dl;  // (N, N)
+//         std::tie(dK_dsigma, dK_dl) = grad_kernel(sigma, l, Kff);
+//         MatrixX<> inner_term = alpha * alpha.transpose() - Kinv;  // (N, N)
+//         g(0) = -0.5 * (inner_term * dK_dsigma).trace();  // Tr(N, N)
+//         g(1) = -0.5 * (inner_term * dK_dl).trace();  // Tr(N, N)
+//         return fval;
 //     }
-
-//     int NumParameters() const override { return 2; }
 
 // private:
 //     const double sigma_noise;
 //     const MatrixX<> Dist;
 //     const VectorX<> trY;
+//     VectorX<> stored_alpha;
 
 // private:
 //     /**
@@ -229,95 +315,6 @@ public:
 
 // };
 
-class NLML{
-public:
-    /**
-     * @brief Construct a new Negative Log Marginal Likelihood Function Object
-     * 
-     * @param _Dist pdist matrix
-     * @param _trY train_y
-     * @param _sigma_noise _sigma_noise
-     */
-    NLML(const MatrixX<> &_Dist, const VectorX<> &_trY, const double &_sigma_noise):
-        Dist(_Dist), trY(_trY), sigma_noise(_sigma_noise){}
-     /**
-     * @brief negative log marginal likelihood
-     * 
-     * @param x 
-     * @param g 
-     * @return double 
-     */
-    double operator()(const Eigen::VectorXd &x, Eigen::VectorXd &g)
-    {
-        double sigma = x[0], l = x[1];
-        MatrixX<> Kff, L, Kinv;  // (N, N)
-        VectorX<> alpha;  // (N, 1)
-        std::tie(Kff, L ,alpha, Kinv) = compute_K_L_Alpha_Kinv(sigma, l, Dist, trY);
-        int n = alpha.rows();
-        double fval = 0.5 * (trY.dot(alpha) + LogDet(L) + n * log(2 * M_PI));
-        MatrixX<> dK_dsigma, dK_dl;  // (N, N)
-        std::tie(dK_dsigma, dK_dl) = grad_kernel(sigma, l, Kff);
-        MatrixX<> inner_term = alpha * alpha.transpose() - Kinv;  // (N, N)
-        g(0) = -0.5 * (inner_term * dK_dsigma).trace();  // Tr(N, N)
-        g(1) = -0.5 * (inner_term * dK_dl).trace();  // Tr(N, N)
-        return fval;
-    }
-
-private:
-    const double sigma_noise;
-    const MatrixX<> Dist;
-    const VectorX<> trY;
-    VectorX<> stored_alpha;
-
-private:
-    /**
-     * @brief Compute Kff, L, alpha, Kff_inv using Cached pdist and train_y
-     * 
-     * @tparam T typename
-     * @param sigma hyper-parameter
-     * @param l hyper-parameter
-     * @param Dist parwise dist
-     * @param train_y 
-     * @return std::tuple<MatrixX<T>, MatrixX<T>, VectorX<T>, atrixX<> > Kff, L, alpha, Kff_inv
-     */
-    std::tuple<MatrixX<>, MatrixX<>, VectorX<>, MatrixX<> > compute_K_L_Alpha_Kinv(const double sigma ,const double l, MatrixX<> Dist, VectorX<> train_y) const
-    {
-        assert(Dist.rows() == train_y.rows());
-        MatrixX<> Kff = computeCovariance(sigma, l, Dist);
-        Kff += sigma_noise * IdentityLike(Kff);
-        Eigen::LLT<MatrixX<>> llt(Kff);
-        assert(llt.info() == Eigen::Success);  // if failed, enlarge the sigma_noise to ensure the PSD of Kff
-        VectorX<> alpha = llt.solve(train_y);
-        MatrixX<> L = llt.matrixL();
-        MatrixX<> Kinv; // assign Identity first, then solve inplace
-        Kinv.resizeLike(Kff);
-        Kinv.setIdentity();
-        llt.solveInPlace(Kinv);
-        return {Kff, L, alpha, Kinv};
-    }
-
-    MatrixX<> computeCovariance(const double sigma, const double l, MatrixX<> Dist) const
-    {
-        return sigma * sigma * (-0.5 / (l*l) * Dist).array().exp();
-    }
-
-        /**
-     * @brief gradient of RBF Kenerl
-     * 
-     * @param sigma 
-     * @param l 
-     * @param Kff 
-     * @return std::tuple<double, double> dK_dsigma, dK_dl
-     */
-    std::tuple<MatrixX<>, MatrixX<>> grad_kernel(const double sigma, const double l, const MatrixX<> &Kff) const
-    {
-        Eigen::Vector2d grad; // dK_dsigma, dK_dl
-        double inv_l3 = 1.0/(l*l*l);
-        return {2 * sigma * Kff, Kff * Dist  * inv_l3};
-    }
-
-};
-
 
 class GPR{
 public:
@@ -351,22 +348,33 @@ public:
         self_pdist(train_x, Dist);
         if(optimize)
         {
-            LBFGSpp::LBFGSBParam<double> param;
-            param.epsilon = 1e-6;
-            param.max_iterations = 30;
-            param.max_linesearch = 40;
-            LBFGSpp::LBFGSBSolver<double> solver(param);
-            VectorX<> theta;
-            theta.resize(2);
-            theta(0) = sigma; theta(1) = l;
-            double fval;
-            NLML func(Dist, trY, sigma_noise);
-            int niter = solver.minimize<NLML>(func, theta, fval, lb, ub);
+            double theta[2] = {sigma, l};
+            ceres::GradientProblem problem(new GPRHyperLoss(Dist, trY, sigma_noise));
+            ceres::GradientProblemSolver::Options options;
+            options.max_num_iterations = 30;
+            options.line_search_direction_type = ceres::BFGS;
+            options.logging_type = ceres::SILENT; // suppress warning
+            options.minimizer_progress_to_stdout = false;
+            ceres::GradientProblemSolver::Summary summary;
+            ceres::Solve(options, problem, theta, &summary);
+            // LBFGSpp::LBFGSBParam<double> param;
+            // param.epsilon = 1e-6;
+            // param.max_iterations = 30;
+            // param.max_linesearch = 40;
+            // LBFGSpp::LBFGSBSolver<double> solver(param);
+            // VectorX<> theta;
+            // theta.resize(2);
+            // theta(0) = sigma; theta(1) = l;
+            // double fval;
+            // NLML func(Dist, trY, sigma_noise);
+            // int niter = solver.minimize<NLML>(func, theta, fval, lb, ub);
+            // sigma = theta[0];
+            // l = theta[1];
+            // is_fit = true;
+            if(verborse)
+                std::printf("sigma: %0.4lf, l: %0.4lf\n", theta[0], theta[1]);
             sigma = theta[0];
             l = theta[1];
-            is_fit = true;
-            if(verborse)
-                std::printf("optiter:%d, sigma: %0.4lf, l: %0.4lf\n", niter, theta[0], theta[1]);
         }
         is_fit = true;
         return {sigma, l};
