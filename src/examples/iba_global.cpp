@@ -132,7 +132,7 @@ std::tuple<bool, double> ComputeAlignmentDist(const KDTree3D* kdtree, const VecV
     normal /= normal.norm();
     double reg_err = 0;
     for(auto const &idx:indices)
-        reg_err += (PointCloud[idx] - nn_pt).dot(normal);
+        reg_err += std::abs((PointCloud[idx] - nn_pt).dot(normal));
     if(reg_err / indices.size() > norm_reg_threshold)
         return {false, pt2pt_dist};
     else
@@ -142,8 +142,8 @@ std::tuple<bool, double> ComputeAlignmentDist(const KDTree3D* kdtree, const VecV
                             sq_dist[0] + min_diff_dist * min_diff_dist)); // dist difference must > a threshold (|ab - bc| <= ac)
         if(k == sq_dist.size()) // not s.t. difference condition
             return {false, pt2pt_dist};
-        double dist = (nn_pt - query_pt).dot(normal);
-        return {true, abs(dist)};
+        double dist = std::abs((nn_pt - query_pt).dot(normal));
+        return {true, dist};
     }
     
 }
@@ -171,8 +171,8 @@ std::tuple<double, double, double, int, int> BAError(
     double Ccnt = 0;
     int cnt_3d_2d = 0;
     int valid_cnt_3d_2d = 0;
-    int valid_pl_3d_3d = 0;
-    int valid_pt_3d_3d = 0;
+    // int valid_pl_3d_3d = 0;
+    // int valid_pt_3d_3d = 0;
     int cnt_3d_3d = 0;
     int valid_cnt_3d_3d = 0;
     Eigen::Matrix3d rotation;
@@ -234,10 +234,10 @@ std::tuple<double, double, double, int, int> BAError(
                     {
                         corr_3d_3d_err += dist;
                         valid_cnt_3d_3d++;
-                        if(is_planefit)
-                            valid_pl_3d_3d++;
-                        else
-                            valid_pt_3d_3d++;
+                        // if(is_planefit)
+                        //     valid_pl_3d_3d++;
+                        // else
+                        //     valid_pt_3d_3d++;
                     }
                     cnt_3d_3d++;
                 }
@@ -325,7 +325,7 @@ std::tuple<double, double, double, int, int> BAError(
     Cval /= Ccnt;
     // auto logger = LogEdges(corr_3d_3d_errlist);
     // print_map("corr3d_3d:",logger);
-    std::printf("plane: %d, point: %d\n", valid_pl_3d_3d, valid_pt_3d_3d);
+    // std::printf("plane: %d, point: %d\n", valid_pl_3d_3d, valid_pt_3d_3d);
     return {corr_3d_2d_err, corr_3d_3d_err, Cval, valid_cnt_3d_2d, cnt_3d_2d};
 }
 
