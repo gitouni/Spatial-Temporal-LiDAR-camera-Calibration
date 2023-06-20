@@ -27,8 +27,8 @@ runtime:
   inner_iba_iter: 10
   sq_err_threshold: 500
   robust_kernel_delta: 6.25
-  init_sigma: 10
-  init_l: 10
-  sigma_noise: 1e-8
-  optimize_gpr: false
+  init_sigma: 5
+  init_l: 5
+  sigma_noise: 1.0E-10
+  optimize_gpr: true
   verborse: true

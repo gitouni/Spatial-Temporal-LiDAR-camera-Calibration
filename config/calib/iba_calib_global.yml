@@ -5,7 +5,7 @@ io:
   VOFile: slam_res/Twc.txt
   LOFile: slam_res/floam_isam_00.txt
   VOIdFile: FrameId.yml
-  ResFile: calib_res/iba_global_00_6.txt
+  ResFile: calib_res/iba_global_pt_00.txt
   init_sim3: calib_res/he_calib_00.txt
   gt_sim3: calib_res/gt_calib_00.txt
   PointCloudDir: ../data/00/velodyne
@@ -27,8 +27,8 @@ runtime:
   corr_3d_3d_threshold: 10
   norm_max_pts: 30
   norm_radius: 0.6
-  norm_reg_threshold: 2.5E-4
-  min_diff_dist: 0.1
+  norm_reg_threshold: 0.001
+  min_diff_dist: 0.2
   he_threshold: 0.13
   err_weight: [1.0, 1.0]
   init_mesh: [0.1,0.1,0.1,0.3,0.3,0.3,1.0]
@@ -36,6 +36,8 @@ runtime:
   lb: [-0.1,-0.1,-0.1,-0.3,-0.3,-0.3,-1.0]
   ub: [0.1,0.1,0.1,0.3,0.3,0.3,1.0]
   max_bbeval: 2000
+  seed: 0
   use_cache: false
-  cacheFile: ../KITTI-00/cache/cache_00_d1.5_fuse_pl_wide.txt
+  cacheFile: ../KITTI-00/cache/cache_00_d1.5_fuse_wide.txt
   verborse: true
+  use_plane: true
