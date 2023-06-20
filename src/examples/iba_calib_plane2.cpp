@@ -2,7 +2,6 @@
 #include <g2o/core/optimization_algorithm_dogleg.h>
 #include "g2o/core/robust_kernel_impl.h"
 #include <yaml-cpp/yaml.h>
-#include "KDTreeVectorOfVectorsAdaptor.h"
 #include "orb_slam/include/System.h"
 #include "orb_slam/include/KeyFrame.h"
 #include <opencv2/core/eigen.hpp>
@@ -14,12 +13,6 @@
 #include <unordered_set>
 #include <omp.h>
 
-typedef std::uint32_t IndexType; // other types cause error, why?
-typedef std::vector<IndexType> VecIndex;
-typedef std::pair<IndexType, IndexType> CorrType;
-typedef std::vector<CorrType> CorrSet;
-typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector2d, double, 2, nanoflann::metric_L2_Simple, IndexType> KDTree2D;
-typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector3d, double, 3, nanoflann::metric_L2_Simple, IndexType> KDTree3D;
 
 
 class IBAPlaneParams{
@@ -88,52 +81,6 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
     }
 }
 
-/**
- * @brief Compute normal of each point in points indexed by indices
- * 
- * @param points the whole point cloud
- * @param kdtree KDTree built with point cloud (Lidar Coord)
- * @param querys indices of selected points
- * @param radius radius to compute point covariance
- * @param max_pts max points of neighbours
- * @return std::tuple<VecVector3d, VecIndex>  valid normals, valid indices of querys
- */
-std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, const KDTree3D* kdtree, const VecIndex &querys,
-    const double radius, const int max_pts)
-{
-    VecVector3d normals;
-    VecIndex valid_indices;
-    normals.reserve(querys.size());
-    valid_indices.reserve(querys.size());
-    for (std::size_t i = 0; i < querys.size(); ++i){
-        const IndexType idx = querys[i];
-        VecIndex indices(max_pts);
-        std::vector<double> sq_dist(max_pts);
-        nanoflann::KNNResultSet<double, IndexType> resultSet(max_pts);
-        resultSet.init(indices.data(), sq_dist.data());
-        kdtree->index->findNeighbors(resultSet, points[idx].data(), nanoflann::SearchParameters());
-        std::size_t k = resultSet.size();
-        if(k < 3)
-            continue;
-        k = std::distance(sq_dist.begin(),
-                      std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
-                                       radius * radius)); // iterator difference between start and last valid index
-        indices.resize(k);
-        sq_dist.resize(k);
-        if(k < 3)
-            continue;
-        Eigen::Matrix3d covariance = ComputeCovariance(points, indices);
-        Eigen::Vector3d normal, eval;
-        std::tie(normal, eval) = FastEigen3x3_EV(covariance);
-        std::vector<double> eigenvalues{eval[0], eval[1], eval[2]};
-        std::sort(eigenvalues.begin(), eigenvalues.end());
-        if(!(eigenvalues[2] > 3 * eigenvalues[1] && eigenvalues[2] > 3 * eigenvalues[0] && eigenvalues[2] > 1e-2))
-            continue; // Valid Plane Verification
-        normals.push_back(normal); // self-to-self distance is minimum
-        valid_indices.push_back(i);
-    }
-    return {normals, valid_indices};
-}
 
 void initInput(double* params, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames, const g2o::Vector7& init_sim3_log, std::unordered_map<int, int> &KFIdMap)
 {

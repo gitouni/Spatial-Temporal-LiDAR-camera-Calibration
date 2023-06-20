@@ -19,7 +19,9 @@ public:
     IBAGPRParams(){};
 public:
     double max_pixel_dist = 1.5;
+    int num_best_convis = 3;
     int min_covis_weight = 150;
+    int num_min_corr = 30;
     int kdtree2d_max_leaf_size = 10;
     int kdtree3d_max_leaf_size = 30;
     double neigh_radius = 0.6;
@@ -73,37 +75,15 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
         std::vector<double> sq_dist(num_closest, std::numeric_limits<double>::max());
         nanoflann::KNNResultSet<double, IndexType> resultSet(num_closest);
         resultSet.init(indices.data(), sq_dist.data());
-        kdtree->index->findNeighbors(resultSet, vKeyUnEigen[i].data(), nanoflann::SearchParameters(0.0F, true));
+        kdtree->index->findNeighbors(resultSet, vKeyUnEigen[i].data(), nanoflann::SearchParameters());
         if(resultSet.size() > 0 && sq_dist[0] <= max_corr_dist * max_corr_dist)
             corrset.push_back(std::make_pair(i, ProjectIndex[indices[0]]));
     }
 }
 
 
-void initInput(std::vector<std::vector<double>> &param_list, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames, const g2o::Vector7& init_sim3_log, std::unordered_map<int, int> &KFIdMap)
-{
-    KFIdMap.reserve(KeyFrames.size());
-    param_list.resize(KeyFrames.size() + 1);  // Sim3 Extrinsic + N KeyFrame poses
-    param_list[0].resize(7);
-    std::copy(init_sim3_log.data(), init_sim3_log.data()+7, param_list[0].data());
-    int posei = 0;
-    for(std::size_t pKFi = 0; pKFi < KeyFrames.size(); ++pKFi)
-    {
-        auto const &pKF = KeyFrames[pKFi];
-        cv::Mat pose = pKF->GetPose();
-        Eigen::Matrix4d poseEigen;
-        cv::cv2eigen(pose, poseEigen);
-        g2o::Vector6 se3_log = SE3Log(poseEigen.topLeftCorner(3, 3), poseEigen.topRightCorner(3, 1));
-        param_list[pKFi+1].resize(6);
-        std::copy(se3_log.data(), se3_log.data() + 6, param_list[pKFi+1].data());
-        KFIdMap.insert(std::make_pair(int(pKF->mnId), posei));
-        ++posei;
-    }
-}
-
-
-void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector<std::unique_ptr<KDTree3D>> &PointKDTrees, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames,
-    const std::unordered_map<int, int> &KFIdMap, std::vector<std::vector<double>> &param_list, ceres::Problem &problem, const IBAGPRParams &iba_params)
+void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector<std::unique_ptr<KDTree3D>> &PointKDTrees,
+    const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames, double* params, ceres::Problem &problem, const IBAGPRParams &iba_params)
 {
     
     int cnt = 0;
@@ -111,13 +91,13 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
     Eigen::Matrix3d init_rotation;
     Eigen::Vector3d init_translation;
     double init_scale;
-    std::tie(init_rotation, init_translation, init_scale) = Sim3Exp<double>(param_list[0].data());
+    std::tie(init_rotation, init_translation, init_scale) = Sim3Exp<double>(params);
     Eigen::Matrix4d initSE3_4x4(Eigen::Matrix4d::Identity());
     initSE3_4x4.topLeftCorner(3, 3) = init_rotation;
     initSE3_4x4.topRightCorner(3, 1) = init_translation;
     Eigen::Isometry3d initSE3;
     initSE3.matrix() = initSE3_4x4;
-    #pragma omp parallel for schedule(static) reduction(+:edge_cnt)
+    #pragma omp parallel for schedule(static)
     for(std::size_t Fi = 0; Fi < PointClouds.size(); ++Fi)
     {
         VecVector3d points;  // pointcloud in camera coord
@@ -126,9 +106,19 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         TransformPointCloud(PointClouds[Fi], points, initSE3);
         CorrSet corrset; // pair of (idx of image points, idx of pointcloud points)
         FindProjectCorrespondences(points, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
-        if(corrset.size() < 50)
+        if(corrset.size() < iba_params.num_min_corr)
             continue;
-        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);  // for debug
+        std::unordered_map<int, ORB_SLAM2::MapPoint*> mapKpt2Mpt;
+        mapKpt2Mpt.reserve(pKF->mmapMpt2Kpt.size());
+        for(auto const& [key, val] : pKF->mmapMpt2Kpt)
+            mapKpt2Mpt[val] = key;
+        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames;
+        if(iba_params.num_best_convis > 0)
+            ConvisKeyFrames = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);  // for debug
+        else
+        {
+            ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
+        }
         std::vector<std::map<int, int>> KptMapList; // Keypoint-Keypoint Corr
         std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
         KptMapList.reserve(ConvisKeyFrames.size());
@@ -143,31 +133,34 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             KptMapList.push_back(std::move(KptMap));
             relPoseList.push_back(std::move(relPoseEigen));
         }
-        VecIndex indices; // valid indices for projecion
+        VecIndex indices; // valid indices of PointCloud for projecion
+        VecIndex subindices; // valid subindices of `indices` through neighborhood search
         for(const CorrType &corr:corrset)
-        {
             indices.push_back(corr.second);
-        }
-        VecIndex subindices; // valid subindices of `indices` through normal computing
-        std::vector<VecIndex> neighbor_indices;
+        std::vector<VecIndex> neighbor_indices;  // Vector of neighbors indices
         std::tie(neighbor_indices, subindices) = ComputeLocalNeighbor(PointClouds[Fi], PointKDTrees[Fi].get(), indices, iba_params.neigh_radius, iba_params.neigh_max_pts);
         for(std::size_t sub_idx = 0; sub_idx < subindices.size(); ++ sub_idx)
         {
-            const IndexType idx = subindices[sub_idx];  // valid idx in corrset
+            const IndexType valid_idx = subindices[sub_idx];  // valid idx in corrset
             const VecIndex &neigh_idx = neighbor_indices[sub_idx];
             VecVector3d neighbor_pts;
             neighbor_pts.reserve(neigh_idx.size());
             for(auto const &idx:neigh_idx)
-                neighbor_pts.push_back(PointClouds[Fi][idx]);  // Lidar coord
-            const int point2d_idx = corrset[idx].first;  // KeyPoint Idx matched with PointCloud
-            const int point3d_idx = corrset[idx].second; // Point Idx matched with KeyPoints
+                neighbor_pts.push_back(PointClouds[Fi][idx]);  // Lidar coord System
+            const int point2d_idx = corrset[valid_idx].first;  // KeyPoint Idx matched with PointCloud
+            if(mapKpt2Mpt.count(point2d_idx) == 0)
+                continue;
+            const int point3d_idx = corrset[valid_idx].second; // Point Idx matched with KeyPoints
             double u0 = pKF->mvKeysUn[point2d_idx].pt.x;
             double v0 = pKF->mvKeysUn[point2d_idx].pt.y;
             // transform 3d point back to LiDAR coordinate
             std::vector<double> u1_list, v1_list;
-            std::vector<double*> param_blocks;
-            param_blocks.push_back(param_list[0].data()); // extrinsic log
-            param_blocks.push_back(param_list[Fi+1].data()); // Reference Pose
+            std::vector<Eigen::Matrix3d> R_list;
+            std::vector<Eigen::Vector3d> t_list;
+            Eigen::Vector3d MapPoint;
+            cv::cv2eigen(mapKpt2Mpt[point2d_idx]->GetWorldPos(), MapPoint);  // scaleless Pw
+            Eigen::Matrix4d Tcw;
+            cv::cv2eigen(pKF->GetPose(), Tcw);  // scaleless Reference Pose Tcw
             for(std::size_t pKFConvi = 0; pKFConvi < ConvisKeyFrames.size(); ++pKFConvi){
                 auto pKFConv = ConvisKeyFrames[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
@@ -179,20 +172,19 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
                 Eigen::Matrix4d relPose = relPoseList[pKFConvi];  // Twc2 * inv(Twc1)
                 u1_list.push_back(u1);
                 v1_list.push_back(v1);
-                assert(KFIdMap.count(pKFConv->mnId) > 0);
-                int ConvFi = KFIdMap.at(pKFConv->mnId);
-                param_blocks.push_back(param_list[ConvFi+1].data());
+                R_list.push_back(relPose.topLeftCorner(3, 3));
+                t_list.push_back(relPose.topRightCorner(3, 1));  
             }
             if(u1_list.size() == 0)
                 continue; // Should Not Run into
             ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernel_delta);
-            ceres::CostFunction *cost_function = UIBA_GPRFactor::Create(
-                iba_params.init_sigma, iba_params.init_l, iba_params.sigma_noise, neighbor_pts, pKF->fx, pKF->fy,
-                pKF->cx, pKF->cy, u0, v0, u1_list, v1_list, iba_params.optimize_gpr, iba_params.verborse
+            ceres::CostFunction *cost_function = IBA_GPR3dFactor::Create(
+                iba_params.init_sigma, iba_params.init_l, iba_params.sigma_noise, neighbor_pts, initSE3_4x4, pKF->mnMaxY, pKF->mnMaxX, pKF->fx, pKF->fy,
+                pKF->cx, pKF->cy, u0, v0, u1_list, v1_list, R_list, t_list, MapPoint, Tcw, iba_params.optimize_gpr, false
             );
             #pragma omp critical
             {
-                problem.AddResidualBlock(cost_function, loss_function, param_blocks);
+                problem.AddResidualBlock(cost_function, loss_function, params);
                 ++edge_cnt;  // valid factor count
             }
         }
@@ -242,6 +234,7 @@ int main(int argc, char** argv){
     // runtime config
     IBAGPRParams iba_params;
     iba_params.max_pixel_dist = runtime_config["max_pixel_dist"].as<double>();
+    iba_params.num_best_convis = runtime_config["num_best_convis"].as<int>();
     iba_params.min_covis_weight = runtime_config["min_covis_weight"].as<int>();
     iba_params.kdtree2d_max_leaf_size = runtime_config["kdtree2d_max_leaf_size"].as<int>();
     iba_params.kdtree3d_max_leaf_size = runtime_config["kdtree3d_max_leaf_size"].as<int>();
@@ -309,9 +302,8 @@ int main(int argc, char** argv){
     std::cout << "Translation: " << rigid.topRightCorner(3, 1).transpose() << std::endl;
     std::cout << "Scale: " << scale << std::endl;
     g2o::Vector7 init_sim3_log = Sim3Log(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1), scale);
-    std::unordered_map<int, int> KFIdMap;
-    std::vector<std::vector<double>> param_list;
-    initInput(param_list, KeyFrames, init_sim3_log, KFIdMap);
+    double params[7];
+    std::copy(init_sim3_log.data(), init_sim3_log.data()+7, params);
     Eigen::Matrix3d optimizedRotation; Eigen::Vector3d optimizedTranslation; double optimizedScale;
     for(int iba_iter = 0; iba_iter < max_iba_iter; ++ iba_iter)
     {
@@ -319,23 +311,22 @@ int main(int argc, char** argv){
         options.max_num_iterations = 30;
         options.minimizer_progress_to_stdout = true;
         options.num_threads = omp_get_max_threads(); // use all threads
-        options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
+        options.linear_solver_type = ceres::DENSE_QR;
         options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
         ceres::Problem problem;
-        BuildProblem(PointClouds, PointKDTrees, KeyFrames, KFIdMap, param_list, problem, iba_params);
+        BuildProblem(PointClouds, PointKDTrees, KeyFrames, params, problem, iba_params);
         ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
-
         if(iba_params.verborse)
         {
-            std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(param_list[0].data());
+            std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(params);
             std::cout << "IBA iter = \033[33;1m" << iba_iter << "\033[0m" << std::endl;
             std::cout << "Rotation:\n" << optimizedRotation << std::endl;
             std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;
             std::cout << "Scale: " << optimizedScale << std::endl;
         }
     }
-    std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(param_list[0].data());
+    std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(params);
     std::cout << "Final Result: " << std::endl;
     std::cout << "Rotation:\n" << optimizedRotation << std::endl;
     std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;

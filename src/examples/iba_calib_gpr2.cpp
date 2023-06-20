@@ -2,7 +2,6 @@
 #include <g2o/core/optimization_algorithm_dogleg.h>
 #include "g2o/core/robust_kernel_impl.h"
 #include <yaml-cpp/yaml.h>
-#include "KDTreeVectorOfVectorsAdaptor.h"
 #include "orb_slam/include/System.h"
 #include "orb_slam/include/KeyFrame.h"
 #include <opencv2/core/eigen.hpp>
@@ -13,13 +12,6 @@
 #include <mutex>
 #include <unordered_set>
 #include <omp.h>
-
-typedef std::uint32_t IndexType; // other types cause error, why?
-typedef std::vector<IndexType> VecIndex;
-typedef std::pair<IndexType, IndexType> CorrType;
-typedef std::vector<CorrType> CorrSet;
-typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector2d, double, 2, nanoflann::metric_L2_Simple, IndexType> KDTree2D;
-typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector3d, double, 3, nanoflann::metric_L2_Simple, IndexType> KDTree3D;
 
 
 class IBAGPRParams{
@@ -87,46 +79,6 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
         if(resultSet.size() > 0 && sq_dist[0] <= max_corr_dist * max_corr_dist)
             corrset.push_back(std::make_pair(i, ProjectIndex[indices[0]]));
     }
-}
-
-/**
- * @brief Compute neighbors of of each point in points indexed by indices
- * 
- * @param points the whole point cloud
- * @param kdtree KDTree built with point cloud (Lidar Coord)
- * @param querys indices of selected points
- * @param radius radius to compute point covariance
- * @param max_pts max points of neighbours
- * @return std::tuple<std::vector<VecIndex>, VecIndex> Vec of neighbors' indices, valid index of querys
- */
-std::tuple<std::vector<VecIndex>, VecIndex> ComputeLocalNeighbor(const VecVector3d &points, const KDTree3D* kdtree, const VecIndex &querys,
-    const double radius, const int max_pts)
-{
-    std::vector<VecIndex> neighbors;
-    neighbors.reserve(querys.size());
-    VecIndex valid_indices;
-    valid_indices.reserve(querys.size());
-    for (std::size_t i = 0; i < querys.size(); ++i){
-        const IndexType query_idx = querys[i];
-        VecIndex indices(max_pts);
-        std::vector<double> sq_dist(max_pts);
-        nanoflann::KNNResultSet<double, IndexType> resultSet(max_pts);
-        resultSet.init(indices.data(), sq_dist.data());
-        kdtree->index->findNeighbors(resultSet, points[query_idx].data(), nanoflann::SearchParameters());
-        int k = resultSet.size();
-        if(k < 3)
-            continue;
-        k = std::distance(sq_dist.begin(),
-                      std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
-                                       radius * radius)); // iterator difference between start and last valid index
-        indices.resize(k);
-        sq_dist.resize(k);
-        if(k < 3)
-            continue;
-        neighbors.push_back(indices); // self-to-self distance is minimum
-        valid_indices.push_back(i);
-    }
-    return {neighbors, valid_indices};
 }
 
 

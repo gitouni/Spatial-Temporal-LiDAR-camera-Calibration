@@ -2,7 +2,6 @@
 #include <g2o/core/optimization_algorithm_dogleg.h>
 #include "g2o/core/robust_kernel_impl.h"
 #include <yaml-cpp/yaml.h>
-#include "KDTreeVectorOfVectorsAdaptor.h"
 #include "orb_slam/include/System.h"
 #include "orb_slam/include/KeyFrame.h"
 #include <opencv2/core/eigen.hpp>
@@ -14,12 +13,6 @@
 #include <unordered_set>
 #include <omp.h>
 
-typedef std::uint32_t IndexType; // other types cause error, why?
-typedef std::vector<IndexType> VecIndex;
-typedef std::pair<IndexType, IndexType> CorrType;
-typedef std::vector<CorrType> CorrSet;
-typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector2d, double, 2, nanoflann::metric_L2_Simple, IndexType> KDTree2D;
-typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector3d, double, 3, nanoflann::metric_L2_Simple, IndexType> KDTree3D;
 
 
 class IBAPlaneParams{
@@ -27,6 +20,7 @@ public:
     IBAPlaneParams(){};
 public:
     double max_pixel_dist = 1.5;
+    int num_best_convis = 3;
     int min_covis_weight = 100;
     int kdtree2d_max_leaf_size = 10;
     int kdtree3d_max_leaf_size = 30;
@@ -82,83 +76,38 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
     }
 }
 
-/**
- * @brief Compute normal of each point in points indexed by indices
- * 
- * @param points the whole point cloud
- * @param indices indices of selected points
- * @param radius radius to compute point covariance
- * @param max_leaf_size max leaf size of kdtree
- * @param max_pts max points of neighbours
- * @return std::tuple<VecVector3d, VecIndex> 
- */
-std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, const VecIndex &indices,
-    const double radius, const int max_leaf_size, const int max_pts)
-{
-    // std::unique_ptr<KDTree3D> kdtree(new KDTree3D(3, points, max_leaf_size));
-    std::unique_ptr<KDTree3D> kdtree(new KDTree3D(3, points, max_leaf_size));
-    VecVector3d normals;
-    VecIndex valid_indices;
-    normals.reserve(indices.size());
-    valid_indices.reserve(indices.size());
-    for (std::size_t i = 0; i < indices.size(); ++i){
-        const IndexType idx = indices[i];
-        VecIndex indices(max_pts);
-        std::vector<double> sq_dist(max_pts);
-        nanoflann::KNNResultSet<double, IndexType> resultSet(max_pts);
-        resultSet.init(indices.data(), sq_dist.data());
-        kdtree->index->findNeighbors(resultSet, points[idx].data(), nanoflann::SearchParameters());
-        std::size_t k = resultSet.size();
-        if(k < 3)
-            continue;
-        k = std::distance(sq_dist.begin(),
-                      std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
-                                       radius * radius)); // iterator difference between start and last valid index
-        indices.resize(k);
-        sq_dist.resize(k);
-        if(k < 3)
-            continue;
-        Eigen::Matrix3d covariance = ComputeCovariance(points, indices);
-        Eigen::Vector3d normal, eval;
-        std::tie(normal, eval) = FastEigen3x3_EV(covariance);
-        std::vector<double> eigenvalues{eval[0], eval[1], eval[2]};
-        std::sort(eigenvalues.begin(), eigenvalues.end());
-        if(!(eigenvalues[2] > 3 * eigenvalues[1] && eigenvalues[2] > 3 * eigenvalues[0] && eigenvalues[2] > 1e-2))
-            continue; // Valid Plane Verification
-        normals.push_back(normal); // self-to-self distance is minimum
-        valid_indices.push_back(i);
-    }
-    return {normals, valid_indices};
-}
-void initInput(double* params, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames, const g2o::Vector7& init_sim3_log, std::unordered_map<int, int> &KFIdMap)
+void initInput(std::vector<std::vector<double>> &param_list, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames, const g2o::Vector7& init_sim3_log, std::unordered_map<int, int> &KFIdMap)
 {
     KFIdMap.reserve(KeyFrames.size());
-    std::copy(init_sim3_log.data(), init_sim3_log.data()+7, params);
+    param_list.resize(KeyFrames.size() + 1);  // Sim3 Extrinsic + N KeyFrame poses
+    param_list[0].resize(7);
+    std::copy(init_sim3_log.data(), init_sim3_log.data()+7, param_list[0].data());
     int posei = 0;
-    for(auto &pKF:KeyFrames)
+    for(std::size_t pKFi = 0; pKFi < KeyFrames.size(); ++pKFi)
     {
+        auto const &pKF = KeyFrames[pKFi];
         cv::Mat pose = pKF->GetPose();
         Eigen::Matrix4d poseEigen;
         cv::cv2eigen(pose, poseEigen);
         g2o::Vector6 se3_log = SE3Log(poseEigen.topLeftCorner(3, 3), poseEigen.topRightCorner(3, 1));
-        std::copy(se3_log.data(), se3_log.data() + 6, params + 7 + posei*6);
+        param_list[pKFi+1].resize(6);
+        std::copy(se3_log.data(), se3_log.data() + 6, param_list[pKFi+1].data());
         KFIdMap.insert(std::make_pair(int(pKF->mnId), posei));
-        posei += 1;
+        ++posei;
     }
 }
 
 
-void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames,
-    const std::unordered_map<int, int> &KFIdMap, double* params, ceres::Problem &problem, const IBAPlaneParams &iba_params)
+void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector<std::unique_ptr<KDTree3D>> &PointKDTrees, const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames,
+    const std::unordered_map<int, int> &KFIdMap, std::vector<std::vector<double>> &param_list, ceres::Problem &problem, const IBAPlaneParams &iba_params)
 {
     
     int cnt = 0;
     int edge_cnt = 0;
-    double* const pose = params + 7;  // pose pointer position
     Eigen::Matrix3d init_rotation;
     Eigen::Vector3d init_translation;
     double init_scale;
-    std::tie(init_rotation, init_translation, init_scale) = Sim3Exp<double>(params);
+    std::tie(init_rotation, init_translation, init_scale) = Sim3Exp<double>(param_list[0].data());
     Eigen::Matrix4d initSE3_4x4(Eigen::Matrix4d::Identity());
     initSE3_4x4.topLeftCorner(3, 3) = init_rotation;
     initSE3_4x4.topRightCorner(3, 1) = init_translation;
@@ -174,20 +123,23 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         TransformPointCloud(PointClouds[Fi], points, initSE3);
         CorrSet corrset; // pair of (idx of image points, idx of pointcloud points)
         FindProjectCorrespondences(points, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
-        if(corrset.size() < 50)
+        if(corrset.size() < iba_params.num_min_corr)
             continue;
-        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);  // for debug
+        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames;
+        if(iba_params.num_best_convis > 0)
+            ConvisKeyFrames = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);  // for debug
+        else
+        {
+            ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
+        }
         std::vector<std::map<int, int>> KptMapList; // Keypoint-Keypoint Corr
         std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
-        std::set<int> srcKptIndices;  // Matched Keypoints in the Reference KeyFrame
         KptMapList.reserve(ConvisKeyFrames.size());
         relPoseList.reserve(ConvisKeyFrames.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
         for(auto pKFConv:ConvisKeyFrames)
         {
             auto KptMap = pKF->GetMatchedKptIds(pKFConv);
-            for(auto &kpt_pair:KptMap)
-                srcKptIndices.insert(kpt_pair.first);
             cv::Mat relPose = pKFConv->GetPose() * invRefPose;  // Transfer from c1 coordinate to c2 coordinate
             Eigen::Matrix4d relPoseEigen;
             cv::cv2eigen(relPose, relPoseEigen);
@@ -196,14 +148,9 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         }
         VecIndex indices; // valid indices for projecion
         VecIndex subindices; // valid subindices of `indices` through normal computing
-        indices.reserve(corrset.size());
         for(const CorrType &corr:corrset)
-        {
-            if(srcKptIndices.count(corr.first) > 0)  // Lidar-Keypoint corr in Keypoint-Keypoint corr
-                indices.push_back(corr.second);
-        }
-        std::tie(normals, subindices) = ComputeLocalNormal(points, indices, iba_params.norm_radius, iba_params.kdtree3d_max_leaf_size, iba_params.norm_max_pts);
-        
+            indices.push_back(corr.second);
+        std::tie(normals, subindices) = ComputeLocalNormal(PointClouds[Fi], PointKDTrees[Fi].get(), indices, iba_params.norm_radius, iba_params.norm_max_pts);
         for(std::size_t sub_idx = 0; sub_idx < subindices.size(); ++ sub_idx)
         {
             const IndexType idx = subindices[sub_idx];  // valid idx in corrset
@@ -216,8 +163,8 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             Eigen::Vector3d n0 = initSE3_4x4.topLeftCorner(3, 3).transpose() * normals[sub_idx];  // cooresponding point normal (LiDAR coord)
             std::vector<double> u1_list, v1_list;
             std::vector<double*> param_blocks;
-            param_blocks.push_back(params); // extrinsic log
-            param_blocks.push_back(params + 7 + 6*Fi); // Reference Pose
+            param_blocks.push_back(param_list[0].data()); // extrinsic log
+            param_blocks.push_back(param_list[Fi+1].data()); // Reference Pose
             for(std::size_t pKFConvi = 0; pKFConvi < ConvisKeyFrames.size(); ++pKFConvi){
                 auto pKFConv = ConvisKeyFrames[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
@@ -229,8 +176,9 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
                 Eigen::Matrix4d relPose = relPoseList[pKFConvi];  // Twc2 * inv(Twc1)
                 u1_list.push_back(u1);
                 v1_list.push_back(v1);
+                assert(KFIdMap.count(pKFConv->mnId) > 0);
                 int ConvFi = KFIdMap.at(pKFConv->mnId);
-                param_blocks.push_back(params + 7 + 6*ConvFi);
+                param_blocks.push_back(param_list[ConvFi+1].data());
             }
             if(u1_list.size() == 0)
                 continue; // Should Not Run into
@@ -339,9 +287,8 @@ int main(int argc, char** argv){
     std::cout << "Scale: " << scale << std::endl;
     g2o::Vector7 init_sim3_log = Sim3Log(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1), scale);
     std::unordered_map<int, int> KFIdMap;
-    double params[7 + 6 * KeyFrames.size()];
-    
-    initInput(params, KeyFrames, init_sim3_log, KFIdMap);
+    std::vector<std::vector<double>> param_list;
+    initInput(param_list, KeyFrames, init_sim3_log, KFIdMap);
     Eigen::Matrix3d optimizedRotation; Eigen::Vector3d optimizedTranslation; double optimizedScale;
     for(int iba_iter = 0; iba_iter < max_iba_iter; ++ iba_iter)
     {
@@ -352,20 +299,20 @@ int main(int argc, char** argv){
         options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
         options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
         ceres::Problem problem;
-        BuildProblem(PointClouds, KeyFrames, KFIdMap, params, problem, iba_params);
+        BuildProblem(PointClouds, KeyFrames, KFIdMap, param_list, problem, iba_params);
         ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
 
         if(iba_params.verborse)
         {
-            std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(params);
+            std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(param_list[0].data());
             std::cout << "IBA iter = \033[33;1m" << iba_iter << "\033[0m" << std::endl;
             std::cout << "Rotation:\n" << optimizedRotation << std::endl;
             std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;
             std::cout << "Scale: " << optimizedScale << std::endl;
         }
     }
-    std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(params);
+    std::tie(optimizedRotation, optimizedTranslation, optimizedScale) = Sim3Exp<double>(param_list[0].data());
     std::cout << "Final Result: " << std::endl;
     std::cout << "Rotation:\n" << optimizedRotation << std::endl;
     std::cout << "Translation: " << optimizedTranslation.transpose() << std::endl;
