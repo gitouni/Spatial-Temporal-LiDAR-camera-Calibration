@@ -21,29 +21,15 @@ set(NOMAD_LIB_DIRS
 "/data/Pacakge/nomad/build/release/lib"
 "/data/Pacakge/nomad/src")
 set(NOMAD_INCLUDE_DIR "/data/Pacakge/nomad/build/release/include/nomad")
+set(IGL_INCLUDE_DIR "/data/Pacakge/libigl/include")
+set(IGL_VIEWER_INCLUDE_DIR "/data/Pacakge/libigl/build/_deps/glfw-src/deps")
+set(IGL_LIB_DIR "/data/Pacakge/libigl/build/lib")
 set(GLOG_LIB /usr/local/lib/libglog.so)
 set(YAML_CPP_LIB /usr/local/lib/libyaml-cpp.so)
 link_libraries(${YAML_CPP_LIB})
 include_directories(${G2O_INCLUDE_DIRS} "/usr/include/eigen3")
-link_directories(${g2o_DIR} ${NOMAD_LIB_DIRS})
-set(G2O_LIBS
-g2o_csparse_extension
-g2o_core 
-g2o_solver_cholmod
-g2o_solver_csparse
-g2o_solver_dense
-g2o_solver_pcg 
-g2o_stuff
-g2o_types_icp
-g2o_types_sba
-g2o_types_sim3
-g2o_types_slam2d
-g2o_types_slam3d)
-set(NOMAD_LIBS
-nomadAlgos
-nomadUtils 
-nomadEval
-)
+link_directories(${g2o_DIR} ${NOMAD_LIB_DIRS} ${IGL_LIB_DIR})
+
 # OpenCV
 find_package(OpenCV 4 REQUIRED)
 # Eigen3
@@ -72,6 +58,53 @@ include_directories(
   include
   ${PROJECT_SOURCE_DIR}/include
   ${PROJECT_SOURCE_DIR}/src
+)
+set(G2O_LIBS
+g2o_csparse_extension
+g2o_core 
+g2o_solver_cholmod
+g2o_solver_csparse
+g2o_solver_dense
+g2o_solver_pcg 
+g2o_stuff
+g2o_types_icp
+g2o_types_sba
+g2o_types_sim3
+g2o_types_slam2d
+g2o_types_slam3d)
+set(NOMAD_LIBS
+nomadAlgos
+nomadUtils 
+nomadEval
+)
+set(IO_LIBS
+${OpenCV_LIBS}
+${PCL_LIBRARIES}
+)
+set(IGL_LIBS
+CoMISo
+glad
+glfw3
+igl
+igl_copyleft_cgal
+igl_copyleft_comiso
+igl_copyleft_core
+igl_copyleft_tetgen
+igl_embree
+igl_glfw
+igl_imgui
+igl_opengl
+igl_png
+igl_predicates
+igl_restricted_triangle
+igl_xml
+imgui
+imguizmo
+predicates
+stb
+tetgen
+tinyxml2
+triangle
 )
 
 
@@ -313,8 +346,21 @@ ${CERES_INCLUDE_DIRS}
 # )
 
 
-add_executable(test_gpr src/test_gpr.cpp)
+add_executable(test_gpr src/test/test_gpr.cpp)
 target_link_libraries(test_gpr
 ${GLOG_LIB}
 ${CERES_LIBRARIES}
+)
+
+
+add_executable(test_igl src/test/test_igl.cpp)
+target_link_libraries(test_igl
+${IO_LIBS}
+${Open3D_LIBRARIES}
+${IGL_LIBS}
+)
+
+target_include_directories(test_igl PRIVATE 
+${IGL_INCLUDE_DIR}
+${IGL_VIEWER_INCLUDE_DIR}
 )
