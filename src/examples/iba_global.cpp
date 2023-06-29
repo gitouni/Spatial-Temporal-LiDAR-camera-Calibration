@@ -4,7 +4,6 @@
 #include "io_tools.h"
 #include "kitti_tools.h"
 #include "pointcloud.h"
-#include "densemap.h"
 #include <mutex>
 #include <functional>
 #include <limits>
@@ -31,13 +30,10 @@ public:
     IBAGlobalParams(){};
 public:
     double max_pixel_dist = 1.5;
-    double corr2d_3d_radius = 3.0;
-    int num_max_corr_2d_3d = 10;
     int kdtree2d_max_leaf_size = 10;
     int kdtree3d_max_leaf_size = 30;
     int num_best_convis = 1;
     int min_covis_weight = 150;
-    int num_min_corr2d_3d = 30;
     double corr_3d_2d_threshold = 40.;
     double corr_3d_3d_threshold = 5.;
     double he_threshold = 0.05;
@@ -55,49 +51,9 @@ public:
     bool use_plane = true;
 };
 
-// /**
-//  * @brief Find Superpixel depth of KeyPoints
-//  * 
-//  * @param points PoitnCloud in Camera Coord
-//  * @param pKF KeyFrame
-//  * @param grid size of grid to approximate pixel-level depth
-//  * @return std::tuple<VecIndex, VecVector3d> 
-//  */
-// std::tuple<VecIndex, VecVector3d> FindDepthCorrespondences(const VecVector3d &points,
-//     const ORB_SLAM2::KeyFrame *pKF, const int grid)
-// {
-//     Eigen::MatrixXd dense_map = DenseMap(points, pKF->mnMaxX, pKF->mnMaxY, pKF->fx, pKF->fy, pKF->cx, pKF->cy, grid, true);
-//     VecIndex point2d_indices;
-//     VecVector3d corr_point3d;
-//     for(IndexType i = 0; i < pKF->mvKeysUn.size(); ++i)
-//     {
-//         Eigen::Index u = static_cast<Eigen::Index>(pKF->mvKeysUn[i].pt.x);
-//         Eigen::Index v = static_cast<Eigen::Index>(pKF->mvKeysUn[i].pt.y);
-//         double depth = dense_map(v, u);
-//         if(depth == 0)
-//             continue;
-//         point2d_indices.push_back(i);
-//         double X = (u - pKF->cx) * depth / pKF->fx;
-//         double Y = (v - pKF->cy) * depth / pKF->fy;
-//         corr_point3d.push_back((Eigen::Vector3d() << X, Y, depth).finished());
-//     }
-//     return {point2d_indices, corr_point3d};
 
-// }
-
-/**
- * @brief Find Correspondence between project points and keypoints. Use Inverse Distance Sum to approximate
- * 
- * @param points 
- * @param pKF 
- * @param leaf_size 
- * @param num_max_corr 
- * @param max_corr_radius 
- * @param max_corr_nn_dist 
- * @return std::tuple<VecIndex, VecVector3d> 
- */
-std::optional<std::tuple<VecIndex, VecVector3d>> FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyFrame* pKF,
-    const int leaf_size, const int num_max_corr, const double max_corr_radius, const double max_corr_nn_dist)
+void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyFrame* pKF,
+    const int leaf_size, const double max_corr_dist, CorrSet &corrset)
 {
     VecVector2d vKeyUnEigen;
     vKeyUnEigen.reserve(pKF->mvKeysUn.size());
@@ -124,41 +80,19 @@ std::optional<std::tuple<VecIndex, VecVector3d>> FindProjectCorrespondences(cons
         }
     }
     if(ProjectPC.size() == 0)
-        return {};
+        return;
     std::unique_ptr<KDTree2D> kdtree (new KDTree2D(2, ProjectPC, leaf_size));
-    const double max_corr_radius2 = max_corr_radius * max_corr_radius;
-    const double max_corr_nn_dist2 = max_corr_nn_dist * max_corr_nn_dist;
-    VecIndex point2d_indices;
-    VecVector3d corr_point3d;
     for(IndexType i = 0; i < vKeyUnEigen.size(); ++i)
     {
-        std::vector<IndexType> indices(num_max_corr);
-        std::vector<double> sq_dist(num_max_corr, std::numeric_limits<double>::max());
-        nanoflann::KNNResultSet<double, IndexType> resultSet(num_max_corr);
+        const int num_closest = 1;
+        std::vector<IndexType> indices(num_closest);
+        std::vector<double> sq_dist(num_closest, std::numeric_limits<double>::max());
+        nanoflann::KNNResultSet<double, IndexType> resultSet(num_closest);
         resultSet.init(indices.data(), sq_dist.data());
-        kdtree->index->findNeighbors(resultSet, vKeyUnEigen[i].data(), nanoflann::SearchParameters());
-        if(sq_dist[0] > max_corr_nn_dist2)  // the minimum distance must < max_corr_nn_dist
-            continue;
-        int k = resultSet.size();
-        k = std::distance(sq_dist.begin(),
-                      std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
-                                       max_corr_radius2)); // iterator difference between start and last valid index
-        indices.resize(k);
-        double inv_dis_sum = 0;
-        Eigen::Vector3d weighted_pt = Eigen::Vector3d::Zero();
-        for(int i = 0; i < k; ++i)
-        {
-            double inv_dis = 1.0 / sqrt(sq_dist[i]);
-            inv_dis_sum += inv_dis;
-            weighted_pt += inv_dis * points[ProjectIndex[indices[i]]];
-        }
-        weighted_pt /= inv_dis_sum;
-        point2d_indices.push_back(i);
-        corr_point3d.push_back(weighted_pt);
+        kdtree->index->findNeighbors(resultSet, vKeyUnEigen[i].data(), nanoflann::SearchParameters(0.0F, true));
+        if(resultSet.size() > 0 && sq_dist[0] <= max_corr_dist * max_corr_dist)
+            corrset.push_back(std::make_pair(i, ProjectIndex[indices[0]]));
     }
-    if(point2d_indices.size() == 0)
-        return {};
-    return {{point2d_indices, corr_point3d}};
 }
 
 /**
@@ -264,14 +198,10 @@ std::tuple<double, double, double, int, int> BAError(
         VecVector3d PC; // Point Cloud in camera coord
         const ORB_SLAM2::KeyFrame* pKF = KeyFrames[Fi];  
         TransformPointCloud(PL, PC, Tcl);    
-        VecIndex point2d_indices;
-        VecVector3d corr_point3d;
+        CorrSet corrset; // pair of (idx of image points, idx of pointcloud points)
         /* Find 3D-2D Correspondence */
-        auto ret = FindProjectCorrespondences(PC, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.num_max_corr_2d_3d, iba_params.corr2d_3d_radius, iba_params.max_pixel_dist);
-        if(!ret.has_value())
-            continue;
-        std::tie(point2d_indices, corr_point3d) = ret.value();
-        if(point2d_indices.size() < iba_params.num_min_corr2d_3d)  // too few correspondences
+        FindProjectCorrespondences(PC, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
+        if(corrset.size() < 30)  // too few correspondences
             continue;
         const cv::Mat InvRefCVPose = pKF->GetPoseInverseSafe();
         Eigen::Matrix4d TcwRS;  // Tcw with real size
@@ -291,7 +221,7 @@ std::tuple<double, double, double, int, int> BAError(
         }
         else
         {
-            for(auto const &point2d_idx:point2d_indices)
+            for(auto const &[point2d_idx, point3d_idx]:corrset)
             {
                 if(mapKpt2Mpt.count(point2d_idx) == 0)
                     continue;
@@ -359,12 +289,13 @@ std::tuple<double, double, double, int, int> BAError(
 
         }
         
-        for(std::size_t corr_i = 0; corr_i < point2d_indices.size(); ++corr_i)
+        for(auto &corr:corrset)
         {
-            const int point2d_idx = point2d_indices[corr_i];  // KeyPoint Idx matched with PointCloud
+            const int point2d_idx = corr.first;  // KeyPoint Idx matched with PointCloud
+            const int point3d_idx = corr.second; // Point Idx matched with KeyPoints
             double u0 = pKF->mvKeysUn[point2d_idx].pt.x;
             double v0 = pKF->mvKeysUn[point2d_idx].pt.y;
-            Eigen::Vector3d p0 = corr_point3d[corr_i]; // camera coord
+            Eigen::Vector3d p0 = PC[point3d_idx]; // camera coord
             const double fx = pKF->fx, fy = pKF->fy, cx = pKF->cx, cy = pKF->cy;
             const double H = pKF->mnMaxY, W = pKF->mnMaxX;
             // transform 3d point back to LiDAR coordinate
@@ -505,7 +436,6 @@ int main(int argc, char** argv){
     const std::string ORBMapFile = orb_config["MapFile"].as<std::string>();
     // runtime config
     iba_params.max_pixel_dist = runtime_config["max_pixel_dist"].as<double>();
-    iba_params.num_min_corr2d_3d = runtime_config["num_min_corr2d_3d"].as<int>();
     iba_params.num_best_convis = runtime_config["num_best_convis"].as<int>();
     iba_params.min_covis_weight = runtime_config["min_covis_weight"].as<int>();
     iba_params.kdtree2d_max_leaf_size = runtime_config["kdtree2d_max_leaf_size"].as<int>();
