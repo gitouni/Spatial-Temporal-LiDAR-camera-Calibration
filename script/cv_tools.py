@@ -43,7 +43,11 @@ def computeV(rvec:np.ndarray):
     theta = np.linalg.norm(rvec)
     skew_rvec = skew(rvec)
     skew_rvec2 = skew_rvec @ skew_rvec
-    V = np.eye(3) + (1 - np.cos(theta))/theta**2 * skew(rvec) + (theta - np.sin(theta))/theta**3 * skew_rvec2
+    # use Taylor expansion of trigonometric functions to achieve better numeric performance when theta is approximately 0.
+    if theta > 1e-8:
+        V = np.eye(3) + (1 - np.cos(theta))/theta**2 * skew_rvec + (theta - np.sin(theta))/theta**3 * skew_rvec2
+    else:
+        V = np.eye(3) + (0.5 - 1/24 * theta**2) * skew_rvec + (1/6 - 1/120*theta**2) * skew_rvec2
     return V
     
 def toVec(SE3:np.ndarray):
