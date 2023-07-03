@@ -7,10 +7,6 @@ import cv2
 # matplotlib.use('agg')
 from matplotlib import pyplot as plt
 from cv_tools import *
-from scipy.spatial import cKDTree
-from GP_reg import GPR
-from joblib import delayed, Parallel
-from scipy.interpolate import BSpline, make_interp_spline
 
 
 os.chdir(os.path.dirname(__file__))
@@ -40,12 +36,13 @@ def options():
     
     io_parser = parser.add_argument_group()
     io_parser.add_argument("--KeyFrameDir",type=str,default="../KITTI-00/KeyFrames")
+    io_parser.add_argument("--MapFile",type=str,default="../KITTI-00/Map.yml")
     io_parser.add_argument("--FrameIdKey",type=str,default="mnFrameId")
     io_parser.add_argument("--KeyPointsKey",type=str,default="mvKeysUn")
     io_parser.add_argument("--MapPointKey",type=str,default="mvpMapPointsId")
     io_parser.add_argument("--CorrKey",type=str,default="mvpCorrKeyPointsId")
     io_parser.add_argument("--index_i",type=int,default=0)
-    io_parser.add_argument("--index_j",type=int,default=1)
+    io_parser.add_argument("--index_j",type=int,default=3)
     io_parser.add_argument("--debug_log",type=str,default="")
     io_parser.add_argument("--Twc_file",type=str,default="../Twc.txt")
     io_parser.add_argument("--Twl_file",type=str,default="../Twl.txt")
@@ -75,15 +72,28 @@ def get_fs_info(fs, keypt_nodename, mappt_nodename, corrkpt_nodename):
     mappt_indices = [int(mapptnode.at(i).real()) for i in range(mapptnode.size())]
     corrkpt_node = fs.getNode(corrkpt_nodename)
     corr_keypt_indices = [int(corrkpt_node.at(i).real()) for i in range(corrkpt_node.size())]
-    return np.array(keypts), mappt_indices, corr_keypt_indices
+    return np.array(keypts,dtype=np.int32), np.array(mappt_indices,dtype=np.int32), np.array(corr_keypt_indices,dtype=np.int32)
 
 def getMatchedIdviaMap(mapnode, src_map_ptid:np.ndarray, tgt_map_ptid:np.ndarray, src_index:int, tgt_index:int):
+    """Get Matched Keypoints via Map
+
+    Args:
+        mapnode (_type_): MapPoints Node of Map FileStorage
+        src_map_ptid (np.ndarray): Referred Mappoints in srcKeyFrame
+        tgt_map_ptid (np.ndarray): Referred Mappoints in tgtKeyFrame
+        src_index (int): srcKeyFrame mnId
+        tgt_index (int): tgtKeyFrame mnId
+
+    Returns:
+        _type_: srcKeyPoints, tgtKeyPoints, corrMapPoints
+    """
     src_in_tgt = np.isin(src_map_ptid, tgt_map_ptid)
-    src_inlier_idx = src_map_ptid[src_in_tgt]  # Common MapPoint
+    src_inlier_mappt_idx = src_map_ptid[src_in_tgt]  # Common MapPoint
     src_kpt_idx = []
     tgt_kpt_idx = []
-    for idx in src_inlier_idx:
-        mappt_node_name = "MapPoint_{:d}".format(idx)
+    mappoint_list = []
+    for mappt_idx in src_inlier_mappt_idx:
+        mappt_node_name = "MapPoint_{:d}".format(mappt_idx)
         mappt_node = mapnode.getNode(mappt_node_name)
         mappt_kfid_node = mappt_node.getNode("mobsMapKFId")
         mappt_kpid_node = mappt_node.getNode("mMapKFInId")
@@ -94,7 +104,8 @@ def getMatchedIdviaMap(mapnode, src_map_ptid:np.ndarray, tgt_map_ptid:np.ndarray
             tgt_kfid_in_mappt = mappt_kfid.index(tgt_index)
             src_kpt_idx.append(mappt_kpid[src_kfid_in_mappt])
             tgt_kpt_idx.append(mappt_kpid[tgt_kfid_in_mappt])
-    return src_kpt_idx, tgt_kpt_idx     
+            mappoint_list.append(mappt_node.getNode("mWorldPos").mat())
+    return src_kpt_idx, tgt_kpt_idx, np.array(mappoint_list).squeeze()
 
 def getMatchedId(src_mappt_indices:list, tgt_mappt_indices:list, src_corrkpt_indices:list, tgt_corrkpt_indices:list):
     src_matched_indices = []
@@ -106,58 +117,6 @@ def getMatchedId(src_mappt_indices:list, tgt_mappt_indices:list, src_corrkpt_ind
             src_matched_indices.append(src_corrkpt_indices[i])
             tgt_matched_indices.append(tgt_corrkpt_indices[tgt_id])
     return np.array(src_matched_indices), np.array(tgt_matched_indices)  # Keypoint Indices
-
-def bspline_interp(train_X:np.ndarray, train_Y:np.ndarray, test_X:np.ndarray):
-    bspline:BSpline = make_interp_spline(train_X, train_Y)
-    if np.ndim(test_X) == 1:
-        return bspline(test_X[None,:]).squeeze()
-    else:
-        return bspline(test_X)
-
-def superpixel_approx(pcd:np.ndarray, query:np.ndarray, pixels:np.ndarray, intran:np.ndarray, radius:float, max_pts:int, img_shape:tuple):
-    def gpr_approx(idx):
-        query_idx = query[idx]
-        pixel = pixels[idx]
-        query_pt = pcd[query_idx]
-        neigh_dist, neigh_indices = pcd_kdtree.query(query_pt, k = max_pts)
-        neigh_rev = neigh_dist < radius
-        neigh_indices = neigh_indices[neigh_rev]
-        neigh_pts = pcd[neigh_indices, :]
-        proj_pts, proj_rev = npproj(neigh_pts, np.eye(4), intran, img_shape)
-        if proj_rev.sum() < 10:
-            return query_pt
-        neigh_pts = neigh_pts[proj_rev]
-        depth = neigh_pts[:,-1]
-        # try:
-        gpr = GPR(optimize=args.gpr_opt)
-        gpr.params['l'] = 5
-        gpr.params['sigma_f'] = 0.1
-        gpr.fit(proj_pts, 1/depth)  # use inverse depth
-        # print_params(gpr.params)
-        pz = gpr.predict(pixel[None,:]).item()
-        pz = 1/pz
-        px = (pixel[0] - cx) / fx * pz
-        py = (pixel[1] - cy) / fy * pz
-        return np.array([px, py, pz])
-        # except Exception as e:
-        #     return query_pt
-    
-    pcd_kdtree = cKDTree(pcd, leafsize=30)
-    N = query.shape[0]
-    assert(query.shape[0] == pixels.shape[0])
-    fx = intran[0,0]
-    fy = intran[1,1]
-    cx = intran[0,2]
-    cy = intran[1,2]
-    if not args.mp:
-        sp_pts = np.zeros([N,3])
-        for i in range(N):
-            sp_pts[i, :] = gpr_approx(i)
-    else:
-        parallel_res = Parallel(n_jobs=-1)(delayed(gpr_approx)(idx) for idx in range(query.shape[0]))
-        sp_pts = np.array(parallel_res)
-    return sp_pts
-
 
 if __name__ == "__main__":
     np.random.seed(10)  # color consistency
@@ -173,83 +132,39 @@ if __name__ == "__main__":
     tgt_KeyFrameFile = os.path.join(args.KeyFrameDir, KeyFramesFiles[args.index_j])
     src_fs = cv2.FileStorage(src_KeyFrameFile, cv2.FILE_STORAGE_READ)
     tgt_fs = cv2.FileStorage(tgt_KeyFrameFile, cv2.FILE_STORAGE_READ)
+    src_pose = src_fs.getNode("Pose").mat()
+    tgt_pose = tgt_fs.getNode("Pose").mat()
+    map_fs = cv2.FileStorage(args.MapFile, cv2.FILE_STORAGE_READ)
+    mappoints_fs = map_fs.getNode("mspMapPoints")
     src_keypts, src_mappt_indices, src_corrkpt_indices = get_fs_info(src_fs, args.KeyPointsKey, args.MapPointKey, args.CorrKey)
     tgt_keypts, tgt_mappt_indices, tgt_corrkpt_indices = get_fs_info(tgt_fs, args.KeyPointsKey, args.MapPointKey, args.CorrKey)
     src_file_index = int(src_fs.getNode(args.FrameIdKey).real())
     tgt_file_index = int(tgt_fs.getNode(args.FrameIdKey).real())
     intran = calibStruct.K_cam0
-    src_matched_pts_idx, tgt_matched_pts_idx = getMatchedId(src_mappt_indices, tgt_mappt_indices, src_corrkpt_indices, tgt_corrkpt_indices)
-    src_pcd_arr = dataStruct.get_velo(src_file_index)[:,:3]  # [N, 3]
-    tgt_pcd_arr = dataStruct.get_velo(tgt_file_index)[:,:3]  # [N, 3]
+    src_matched_pts_idx, tgt_matched_pts_idx, mappoints = getMatchedIdviaMap(mappoints_fs, src_mappt_indices, tgt_mappt_indices, args.index_i, args.index_j)
     src_img = np.array(dataStruct.get_cam0(src_file_index))  # [H, W, 3]
     tgt_img = np.array(dataStruct.get_cam0(tgt_file_index))  # [H, W, 3]
-    src_pose = dataStruct.poses[src_file_index]
-    tgt_pose = dataStruct.poses[tgt_file_index]
-    camera_motion:np.ndarray = inv_pose(tgt_pose) @ src_pose  # Tc2w * Twc1
     src_matched_pts = src_keypts[src_matched_pts_idx]
     tgt_matched_pts = tgt_keypts[tgt_matched_pts_idx]
     print("Matched Keypoints:{}".format(len(src_matched_pts)))
-    src_pcd_camcoord = nptran(src_pcd_arr, extran)
-    proj_src_pcd, src_rev = npproj(src_pcd_camcoord, np.eye(4), intran, src_img.shape)
-    src_pcd_camcoord = src_pcd_camcoord[src_rev]
-    src_2d_kdtree = cKDTree(proj_src_pcd, leafsize=10)
-    if args.depth_conflict:
-        src_dists, src_pcd_querys = src_2d_kdtree.query(src_matched_pts, args.max_2d_nn, eps=1e-4, p=1, workers=-1)
-        src_dist_rev = np.ones(src_dists.shape[0], dtype=np.bool8)
-        src_pcd_query = np.zeros(src_dists.shape[0], dtype=np.int32)
-        for i in range(src_matched_pts.shape[0]):
-            dist = src_dists[i]
-            dist_rev:np.ndarray = dist < args.pixel_corr_dist
-            if dist_rev.sum() == 0:
-                src_dist_rev[i] = False
-                continue
-            dist = dist[dist_rev]
-            query = src_pcd_querys[i][dist_rev]
-            if dist_rev.sum() == 1:
-                src_pcd_query[i] = query[0]
-                continue
-            dist_std = np.std(dist)
-            if dist_std < args.max_2d_std:
-                src_pcd_query[i] = query[0]
-            else:
-                depths = src_pcd_camcoord[query,2]  # same permutation with dist
-                depth_sortidx = np.argsort(depths)
-                sorted_depths = depths[depth_sortidx]
-                depth_diffs = np.diff(sorted_depths, n=1, prepend=sorted_depths[0])
-                dist_rev2 = depth_diffs < args.max_depth_diff
-                query_idx = np.min(depth_sortidx[dist_rev2])
-                src_pcd_query[i] = query[query_idx]
-                if query_idx != 0:
-                    print("Before: {}, After: {}".format(query[0], query[query_idx]))
-    else:
-        src_dist, src_pcd_query = src_2d_kdtree.query(src_matched_pts, 1, eps=1e-4, p=1, workers=-1)
-        src_dist_rev = src_dist < args.pixel_corr_dist
-    src_matched_pts = src_matched_pts[src_dist_rev]
-    tgt_matched_pts = tgt_matched_pts[src_dist_rev]
-    src_pcd_query = src_pcd_query[src_dist_rev]
-    src_pcd_3d_query = np.arange(src_pcd_camcoord.shape[0])
-    src_pcd_3d_query = src_pcd_3d_query[src_pcd_query]
-    if args.gpr:
-        sp_pts3d = superpixel_approx(src_pcd_camcoord, src_pcd_3d_query, src_matched_pts, intran, args.gpr_radius, args.gpr_max_pts, src_img.shape)
-    else:
-        sp_pts3d = src_pcd_camcoord[src_pcd_3d_query]
-    src_proj_pcd, _ = npproj(sp_pts3d, np.eye(4), intran, src_img.shape)
-    tgt_pcd_arr = nptran(sp_pts3d, camera_motion)
-    tgt_proj_pcd, tgt_proj_rev = npproj(tgt_pcd_arr, np.eye(4), intran, tgt_img.shape)
-    src_matched_pts = src_matched_pts[tgt_matched_pts]
+    proj_src_pcd, src_proj_rev = npproj(mappoints, src_pose, intran, src_img.shape)
+    proj_tgt_pcd, tgt_proj_rev = npproj(mappoints, tgt_pose, intran, tgt_img.shape)
+    src_in_tgt = np.isin(src_proj_rev, tgt_proj_rev)
+    tgt_in_src = np.isin(tgt_proj_rev, src_proj_rev)
+    proj_src_pcd = proj_src_pcd[src_in_tgt]
+    proj_tgt_pcd = proj_tgt_pcd[tgt_in_src]
+    src_proj_rev = src_proj_rev[src_in_tgt]
+    tgt_proj_rev = tgt_proj_rev[tgt_in_src]
+    src_matched_pts = src_matched_pts[src_proj_rev]
     tgt_matched_pts = tgt_matched_pts[tgt_proj_rev]
-    err = np.mean(np.sqrt(np.sum((tgt_matched_pts - tgt_proj_pcd)**2,axis=1)))
-    draw_tgt_img, draw_src_img = draw4corrpoints(tgt_img, src_img, *list(map(lambda arr: arr.astype(np.int32),[tgt_matched_pts, tgt_proj_pcd, src_matched_pts, src_proj_pcd])))
+    err = np.mean(np.sqrt(np.sum((tgt_matched_pts - proj_tgt_pcd)**2,axis=1)))
+    draw_tgt_img, draw_src_img = draw4corrpoints(tgt_img, src_img, *list(map(lambda arr: arr.astype(np.int32),[tgt_matched_pts, proj_tgt_pcd, src_matched_pts, proj_src_pcd])))
     
     plt.figure(dpi=200)
     plt.subplot(2,1,1)
-    plt.title("Matched points:{} | error:{:0.4}".format(tgt_matched_pts.shape[0],err))
+    plt.title("Frame {} - {} | Matched:{} | error:{:0.4}".format(src_file_index+1, tgt_file_index+1, tgt_matched_pts.shape[0],err))
     plt.imshow(draw_src_img)
     plt.subplot(2,1,2)
     plt.imshow(draw_tgt_img)
-    # plt.show()
-    if args.depth_conflict:
-        plt.savefig("../res/KNN_depth_conflict.png")
-    else:
-        plt.savefig("../res/KNN.png")
+    plt.show()
     
