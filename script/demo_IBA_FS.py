@@ -11,7 +11,7 @@ from scipy.spatial import cKDTree
 from GP_reg import GPR
 from joblib import delayed, Parallel
 from scipy.interpolate import BSpline, make_interp_spline
-
+import yaml
 
 os.chdir(os.path.dirname(__file__))
 
@@ -40,19 +40,21 @@ def options():
     
     io_parser = parser.add_argument_group()
     io_parser.add_argument("--KeyFrameDir",type=str,default="../KITTI-00/KeyFrames")
+    io_parser.add_argument("--FrameIdFile",type=str,default="../KITTI-00/FrameId.yml")
+    io_parser.add_argument("--KeyFrameIdKey",type=str,default="mnId")
     io_parser.add_argument("--FrameIdKey",type=str,default="mnFrameId")
     io_parser.add_argument("--KeyPointsKey",type=str,default="mvKeysUn")
     io_parser.add_argument("--MapPointKey",type=str,default="mvpMapPointsId")
     io_parser.add_argument("--CorrKey",type=str,default="mvpCorrKeyPointsId")
     io_parser.add_argument("--index_i",type=int,default=0)
-    io_parser.add_argument("--index_j",type=int,default=1)
+    io_parser.add_argument("--index_j",type=int,default=3)
     io_parser.add_argument("--debug_log",type=str,default="")
     io_parser.add_argument("--Twc_file",type=str,default="../Twc.txt")
     io_parser.add_argument("--Twl_file",type=str,default="../Twl.txt")
     
     arg_parser = parser.add_argument_group()
     arg_parser.add_argument("--fps_sample",type=int,default=-1)
-    arg_parser.add_argument("--pixel_corr_dist",type=float,default=3)
+    arg_parser.add_argument("--pixel_corr_dist",type=float,default=1.5)
     arg_parser.add_argument("--max_2d_nn",type=int, default=30)
     arg_parser.add_argument("--max_2d_std",type=float,default=0.05)
     arg_parser.add_argument("--max_depth_diff",type=float,default=0.1)
@@ -169,14 +171,20 @@ if __name__ == "__main__":
     print("GT TCL Rvec:{}\ntvec:{}".format(*toVec(extran)))
     KeyFramesFiles = list(sorted(os.listdir(args.KeyFrameDir)))
     KeyFramesFiles = [file for file in KeyFramesFiles if os.path.splitext(file)[1] == '.yml']
-    src_KeyFrameFile = os.path.join(args.KeyFrameDir, KeyFramesFiles[args.index_i])
-    tgt_KeyFrameFile = os.path.join(args.KeyFrameDir, KeyFramesFiles[args.index_j])
+    FrameIdCfg = yaml.load(open(args.FrameIdFile,'r'), yaml.SafeLoader)
+    mnIds:list = FrameIdCfg[args.KeyFrameIdKey]
+    mFrameIds:list = FrameIdCfg[args.FrameIdKey]
+    assert(args.index_i in mnIds and args.index_j in mnIds), "{} and {} must be in mnIds".format(args.index_i, args.index_j)
+    src_kffile_index = mnIds.index(args.index_i)
+    tgt_kffile_index = mnIds.index(args.index_j)
+    src_file_index = mFrameIds[src_kffile_index]
+    tgt_file_index = mFrameIds[tgt_kffile_index]
+    src_KeyFrameFile = os.path.join(args.KeyFrameDir, KeyFramesFiles[src_kffile_index])
+    tgt_KeyFrameFile = os.path.join(args.KeyFrameDir, KeyFramesFiles[tgt_kffile_index])
     src_fs = cv2.FileStorage(src_KeyFrameFile, cv2.FILE_STORAGE_READ)
     tgt_fs = cv2.FileStorage(tgt_KeyFrameFile, cv2.FILE_STORAGE_READ)
     src_keypts, src_mappt_indices, src_corrkpt_indices = get_fs_info(src_fs, args.KeyPointsKey, args.MapPointKey, args.CorrKey)
     tgt_keypts, tgt_mappt_indices, tgt_corrkpt_indices = get_fs_info(tgt_fs, args.KeyPointsKey, args.MapPointKey, args.CorrKey)
-    src_file_index = int(src_fs.getNode(args.FrameIdKey).real())
-    tgt_file_index = int(tgt_fs.getNode(args.FrameIdKey).real())
     intran = calibStruct.K_cam0
     src_matched_pts_idx, tgt_matched_pts_idx = getMatchedId(src_mappt_indices, tgt_mappt_indices, src_corrkpt_indices, tgt_corrkpt_indices)
     src_pcd_arr = dataStruct.get_velo(src_file_index)[:,:3]  # [N, 3]
@@ -236,20 +244,17 @@ if __name__ == "__main__":
     src_proj_pcd, _ = npproj(sp_pts3d, np.eye(4), intran, src_img.shape)
     tgt_pcd_arr = nptran(sp_pts3d, camera_motion)
     tgt_proj_pcd, tgt_proj_rev = npproj(tgt_pcd_arr, np.eye(4), intran, tgt_img.shape)
-    src_matched_pts = src_matched_pts[tgt_matched_pts]
+    src_matched_pts = src_matched_pts[tgt_proj_rev]
     tgt_matched_pts = tgt_matched_pts[tgt_proj_rev]
     err = np.mean(np.sqrt(np.sum((tgt_matched_pts - tgt_proj_pcd)**2,axis=1)))
     draw_tgt_img, draw_src_img = draw4corrpoints(tgt_img, src_img, *list(map(lambda arr: arr.astype(np.int32),[tgt_matched_pts, tgt_proj_pcd, src_matched_pts, src_proj_pcd])))
     
     plt.figure(dpi=200)
     plt.subplot(2,1,1)
-    plt.title("Matched points:{} | error:{:0.4}".format(tgt_matched_pts.shape[0],err))
+    plt.title("Frame {} - {} | Matched:{} | error:{:0.4}".format(src_file_index+1, tgt_file_index+1, tgt_matched_pts.shape[0],err))
     plt.imshow(draw_src_img)
     plt.subplot(2,1,2)
     plt.imshow(draw_tgt_img)
-    # plt.show()
-    if args.depth_conflict:
-        plt.savefig("../res/KNN_depth_conflict.png")
-    else:
-        plt.savefig("../res/KNN.png")
+    plt.show()
+
     

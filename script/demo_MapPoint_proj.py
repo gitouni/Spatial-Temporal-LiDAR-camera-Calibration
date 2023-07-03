@@ -7,7 +7,7 @@ import cv2
 # matplotlib.use('agg')
 from matplotlib import pyplot as plt
 from cv_tools import *
-
+import yaml
 
 os.chdir(os.path.dirname(__file__))
 
@@ -37,12 +37,14 @@ def options():
     io_parser = parser.add_argument_group()
     io_parser.add_argument("--KeyFrameDir",type=str,default="../KITTI-00/KeyFrames")
     io_parser.add_argument("--MapFile",type=str,default="../KITTI-00/Map.yml")
+    io_parser.add_argument("--FrameIdFile",type=str,default="../KITTI-00/FrameId.yml")
+    io_parser.add_argument("--KeyFrameIdKey",type=str,default="mnId")
     io_parser.add_argument("--FrameIdKey",type=str,default="mnFrameId")
     io_parser.add_argument("--KeyPointsKey",type=str,default="mvKeysUn")
     io_parser.add_argument("--MapPointKey",type=str,default="mvpMapPointsId")
     io_parser.add_argument("--CorrKey",type=str,default="mvpCorrKeyPointsId")
     io_parser.add_argument("--index_i",type=int,default=0)
-    io_parser.add_argument("--index_j",type=int,default=3)
+    io_parser.add_argument("--index_j",type=int,default=8)
     io_parser.add_argument("--debug_log",type=str,default="")
     io_parser.add_argument("--Twc_file",type=str,default="../Twc.txt")
     io_parser.add_argument("--Twl_file",type=str,default="../Twl.txt")
@@ -128,8 +130,16 @@ if __name__ == "__main__":
     print("GT TCL Rvec:{}\ntvec:{}".format(*toVec(extran)))
     KeyFramesFiles = list(sorted(os.listdir(args.KeyFrameDir)))
     KeyFramesFiles = [file for file in KeyFramesFiles if os.path.splitext(file)[1] == '.yml']
-    src_KeyFrameFile = os.path.join(args.KeyFrameDir, KeyFramesFiles[args.index_i])
-    tgt_KeyFrameFile = os.path.join(args.KeyFrameDir, KeyFramesFiles[args.index_j])
+    FrameIdCfg = yaml.load(open(args.FrameIdFile,'r'), yaml.SafeLoader)
+    mnIds:list = FrameIdCfg[args.KeyFrameIdKey]
+    mFrameIds:list = FrameIdCfg[args.FrameIdKey]
+    assert(args.index_i in mnIds and args.index_j in mnIds), "{} and {} must be in mnIds".format(args.index_i, args.index_j)
+    src_kffile_index = mnIds.index(args.index_i)
+    tgt_kffile_index = mnIds.index(args.index_j)
+    src_file_index = mFrameIds[src_kffile_index]
+    tgt_file_index = mFrameIds[tgt_kffile_index]
+    src_KeyFrameFile = os.path.join(args.KeyFrameDir, KeyFramesFiles[src_kffile_index])
+    tgt_KeyFrameFile = os.path.join(args.KeyFrameDir, KeyFramesFiles[tgt_kffile_index])
     src_fs = cv2.FileStorage(src_KeyFrameFile, cv2.FILE_STORAGE_READ)
     tgt_fs = cv2.FileStorage(tgt_KeyFrameFile, cv2.FILE_STORAGE_READ)
     src_pose = src_fs.getNode("Pose").mat()
@@ -138,8 +148,8 @@ if __name__ == "__main__":
     mappoints_fs = map_fs.getNode("mspMapPoints")
     src_keypts, src_mappt_indices, src_corrkpt_indices = get_fs_info(src_fs, args.KeyPointsKey, args.MapPointKey, args.CorrKey)
     tgt_keypts, tgt_mappt_indices, tgt_corrkpt_indices = get_fs_info(tgt_fs, args.KeyPointsKey, args.MapPointKey, args.CorrKey)
-    src_file_index = int(src_fs.getNode(args.FrameIdKey).real())
-    tgt_file_index = int(tgt_fs.getNode(args.FrameIdKey).real())
+    # src_file_index = int(src_fs.getNode(args.FrameIdKey).real())
+    # tgt_file_index = int(tgt_fs.getNode(args.FrameIdKey).real())
     intran = calibStruct.K_cam0
     src_matched_pts_idx, tgt_matched_pts_idx, mappoints = getMatchedIdviaMap(mappoints_fs, src_mappt_indices, tgt_mappt_indices, args.index_i, args.index_j)
     src_img = np.array(dataStruct.get_cam0(src_file_index))  # [H, W, 3]
@@ -151,18 +161,23 @@ if __name__ == "__main__":
     proj_tgt_pcd, tgt_proj_rev = npproj(mappoints, tgt_pose, intran, tgt_img.shape)
     src_in_tgt = np.isin(src_proj_rev, tgt_proj_rev)
     tgt_in_src = np.isin(tgt_proj_rev, src_proj_rev)
-    proj_src_pcd = proj_src_pcd[src_in_tgt]
-    proj_tgt_pcd = proj_tgt_pcd[tgt_in_src]
-    src_proj_rev = src_proj_rev[src_in_tgt]
-    tgt_proj_rev = tgt_proj_rev[tgt_in_src]
+    # proj_src_pcd = proj_src_pcd[src_in_tgt]
+    # proj_tgt_pcd = proj_tgt_pcd[tgt_in_src]
+    # src_proj_rev = src_proj_rev[src_in_tgt]
+    # tgt_proj_rev = tgt_proj_rev[tgt_in_src]
     src_matched_pts = src_matched_pts[src_proj_rev]
     tgt_matched_pts = tgt_matched_pts[tgt_proj_rev]
-    err = np.mean(np.sqrt(np.sum((tgt_matched_pts - proj_tgt_pcd)**2,axis=1)))
+    err:np.ndarray = np.sqrt(np.sum((tgt_matched_pts - proj_tgt_pcd)**2,axis=1))
+    # err_rev = err < 4
+    # err = err[err_rev]
+    # proj_src_pcd = proj_src_pcd[err_rev]
+    # proj_tgt_pcd = proj_tgt_pcd[err_rev]
+    # src_matched_pts = src_matched_pts[err_rev]
+    # tgt_matched_pts = tgt_matched_pts[err_rev]
     draw_tgt_img, draw_src_img = draw4corrpoints(tgt_img, src_img, *list(map(lambda arr: arr.astype(np.int32),[tgt_matched_pts, proj_tgt_pcd, src_matched_pts, proj_src_pcd])))
-    
     plt.figure(dpi=200)
     plt.subplot(2,1,1)
-    plt.title("Frame {} - {} | Matched:{} | error:{:0.4}".format(src_file_index+1, tgt_file_index+1, tgt_matched_pts.shape[0],err))
+    plt.title("Frame {} - {} | Matched:{} | error:{:0.4}".format(src_file_index+1, tgt_file_index+1, tgt_matched_pts.shape[0],err.mean()))
     plt.imshow(draw_src_img)
     plt.subplot(2,1,2)
     plt.imshow(draw_tgt_img)
