@@ -10,7 +10,6 @@ from cv_tools import *
 from scipy.spatial import cKDTree
 from GP_reg import GPR
 from joblib import delayed, Parallel
-from scipy.interpolate import BSpline, make_interp_spline
 import yaml
 
 os.chdir(os.path.dirname(__file__))
@@ -41,13 +40,14 @@ def options():
     io_parser = parser.add_argument_group()
     io_parser.add_argument("--KeyFrameDir",type=str,default="../KITTI-00/KeyFrames")
     io_parser.add_argument("--FrameIdFile",type=str,default="../KITTI-00/FrameId.yml")
+    io_parser.add_argument("--MapFile",type=str,default="../KITTI-00/Map.yml")
     io_parser.add_argument("--KeyFrameIdKey",type=str,default="mnId")
     io_parser.add_argument("--FrameIdKey",type=str,default="mnFrameId")
     io_parser.add_argument("--KeyPointsKey",type=str,default="mvKeysUn")
     io_parser.add_argument("--MapPointKey",type=str,default="mvpMapPointsId")
     io_parser.add_argument("--CorrKey",type=str,default="mvpCorrKeyPointsId")
-    io_parser.add_argument("--index_i",type=int,default=0)
-    io_parser.add_argument("--index_j",type=int,default=3)
+    io_parser.add_argument("--index_i",type=int,default=75)
+    io_parser.add_argument("--index_j",type=int,default=79)
     io_parser.add_argument("--debug_log",type=str,default="")
     io_parser.add_argument("--Twc_file",type=str,default="../Twc.txt")
     io_parser.add_argument("--Twl_file",type=str,default="../Twl.txt")
@@ -61,8 +61,8 @@ def options():
     arg_parser.add_argument("--gpr_radius",type=float,default=0.6)
     arg_parser.add_argument("--gpr_max_pts",type=int,default=30)
     arg_parser.add_argument("--gpr_max_cov",type=float,default=0.1)
-    arg_parser.add_argument("--gpr",type=str2bool,default=True)
-    arg_parser.add_argument("--gpr_opt",type=str2bool, default=True)
+    arg_parser.add_argument("--gpr",type=str2bool,default=False)
+    arg_parser.add_argument("--gpr_opt",type=str2bool, default=False)
     arg_parser.add_argument("--mp",type=str2bool,default=True)
     arg_parser.add_argument("--depth_conflict",type=str2bool,default=False)
     args = parser.parse_args()
@@ -79,25 +79,6 @@ def get_fs_info(fs, keypt_nodename, mappt_nodename, corrkpt_nodename):
     corr_keypt_indices = [int(corrkpt_node.at(i).real()) for i in range(corrkpt_node.size())]
     return np.array(keypts), mappt_indices, corr_keypt_indices
 
-def getMatchedIdviaMap(mapnode, src_map_ptid:np.ndarray, tgt_map_ptid:np.ndarray, src_index:int, tgt_index:int):
-    src_in_tgt = np.isin(src_map_ptid, tgt_map_ptid)
-    src_inlier_idx = src_map_ptid[src_in_tgt]  # Common MapPoint
-    src_kpt_idx = []
-    tgt_kpt_idx = []
-    for idx in src_inlier_idx:
-        mappt_node_name = "MapPoint_{:d}".format(idx)
-        mappt_node = mapnode.getNode(mappt_node_name)
-        mappt_kfid_node = mappt_node.getNode("mobsMapKFId")
-        mappt_kpid_node = mappt_node.getNode("mMapKFInId")
-        mappt_kfid = [int(mappt_kfid_node.at(i).real()) for i in range(mappt_kfid_node.size())]
-        mappt_kpid = [int(mappt_kpid_node.at(i).real()) for i in range(mappt_kpid_node.size())]
-        if src_index in mappt_kfid and tgt_index in mappt_kfid:
-            src_kfid_in_mappt = mappt_kfid.index(src_index)
-            tgt_kfid_in_mappt = mappt_kfid.index(tgt_index)
-            src_kpt_idx.append(mappt_kpid[src_kfid_in_mappt])
-            tgt_kpt_idx.append(mappt_kpid[tgt_kfid_in_mappt])
-    return src_kpt_idx, tgt_kpt_idx     
-
 def getMatchedId(src_mappt_indices:list, tgt_mappt_indices:list, src_corrkpt_indices:list, tgt_corrkpt_indices:list):
     src_matched_indices = []
     tgt_matched_indices = []
@@ -108,13 +89,6 @@ def getMatchedId(src_mappt_indices:list, tgt_mappt_indices:list, src_corrkpt_ind
             src_matched_indices.append(src_corrkpt_indices[i])
             tgt_matched_indices.append(tgt_corrkpt_indices[tgt_id])
     return np.array(src_matched_indices), np.array(tgt_matched_indices)  # Keypoint Indices
-
-def bspline_interp(train_X:np.ndarray, train_Y:np.ndarray, test_X:np.ndarray):
-    bspline:BSpline = make_interp_spline(train_X, train_Y)
-    if np.ndim(test_X) == 1:
-        return bspline(test_X[None,:]).squeeze()
-    else:
-        return bspline(test_X)
 
 def superpixel_approx(pcd:np.ndarray, query:np.ndarray, pixels:np.ndarray, intran:np.ndarray, radius:float, max_pts:int, img_shape:tuple):
     def gpr_approx(idx):
@@ -202,7 +176,8 @@ if __name__ == "__main__":
     src_pcd_camcoord = src_pcd_camcoord[src_rev]
     src_2d_kdtree = cKDTree(proj_src_pcd, leafsize=10)
     if args.depth_conflict:
-        src_dists, src_pcd_querys = src_2d_kdtree.query(src_matched_pts, args.max_2d_nn, eps=1e-4, p=1, workers=-1)
+        src_dists, src_pcd_querys = src_2d_kdtree.query(src_matched_pts, args.max_2d_nn, eps=1e-4, p=2, workers=-1)
+        src_dists = np.sqrt(src_dists)
         src_dist_rev = np.ones(src_dists.shape[0], dtype=np.bool8)
         src_pcd_query = np.zeros(src_dists.shape[0], dtype=np.int32)
         for i in range(src_matched_pts.shape[0]):
@@ -231,7 +206,7 @@ if __name__ == "__main__":
                     print("Before: {}, After: {}".format(query[0], query[query_idx]))
     else:
         src_dist, src_pcd_query = src_2d_kdtree.query(src_matched_pts, 1, eps=1e-4, p=1, workers=-1)
-        src_dist_rev = src_dist < args.pixel_corr_dist
+        src_dist_rev = src_dist < args.pixel_corr_dist**2
     src_matched_pts = src_matched_pts[src_dist_rev]
     tgt_matched_pts = tgt_matched_pts[src_dist_rev]
     src_pcd_query = src_pcd_query[src_dist_rev]
