@@ -21,7 +21,9 @@ set(NOMAD_LIB_DIRS
 "/data/Pacakge/nomad/build/release/lib"
 "/data/Pacakge/nomad/src")
 set(NOMAD_INCLUDE_DIR "/data/Pacakge/nomad/build/release/include/nomad")
-set(IGL_INCLUDE_DIR "/data/Pacakge/libigl/include")
+set(IGL_INCLUDE_DIR
+"/data/Pacakge/libigl/include"
+)
 set(IGL_VIEWER_INCLUDE_DIR "/data/Pacakge/libigl/build/_deps/glfw-src/deps")
 set(IGL_LIB_DIR "/data/Pacakge/libigl/build/lib")
 set(GLOG_LIB /usr/local/lib/libglog.so)
@@ -81,6 +83,8 @@ set(IO_LIBS
 ${OpenCV_LIBS}
 ${PCL_LIBRARIES}
 )
+set(GMP_LIB /usr/lib/x86_64-linux-gnu/libgmp.so)
+
 set(IGL_LIBS
 CoMISo
 glad
@@ -105,6 +109,7 @@ stb
 tetgen
 tinyxml2
 triangle
+${GMP_LIB}
 )
 
 
@@ -133,13 +138,7 @@ target_include_directories(backend PRIVATE
   ${GTSAM_INCLUDE_DIR}
 )
 
-add_executable(floam_backend
-src/examples/floam_backend.cpp
-)
-add_dependencies(floam_backend backend)
-target_link_libraries(floam_backend
-  backend
-)
+
 
 set(ORB_INCLUDE_DIRS
 ${PROJECT_SOURCE_DIR}/src/orb_slam
@@ -165,6 +164,13 @@ target_link_libraries(floam_run
 ${FLOAM_LIBRARIES}
 )
 
+add_executable(floam_backend
+src/examples/floam_backend.cpp
+)
+add_dependencies(floam_backend backend)
+target_link_libraries(floam_backend
+  backend
+)
 
 add_executable(orb_run src/examples/orb_kitti.cpp)
 add_dependencies(orb_run ORB_SLAM2)
@@ -302,6 +308,23 @@ ${ORB_INCLUDE_DIRS}
 ${CERES_INCLUDE_DIRS}
 )
 
+# add_executable(iba_calib3dq_gpr src/examples/iba_calib3dq_gpr.cpp)
+# add_dependencies(iba_calib3dq_gpr ORB_SLAM2)
+# target_link_libraries(iba_calib3dq_gpr
+# ${ORB_LIBARIES}
+# ${PCL_LIBRARIES}
+# ${G2O_LIBS}
+# ${GLOG_LIB} 
+# ${CERES_LIBRARIES}
+# ${Open3D_LIBRARIES}
+# ${IGL_LIBS}
+# )
+# target_include_directories(iba_calib3dq_gpr PRIVATE 
+# ${ORB_INCLUDE_DIRS}
+# ${CERES_INCLUDE_DIRS}
+# ${IGL_INCLUDE_DIR}
+# )
+
 
 add_executable(iba_global src/examples/iba_global.cpp)
 add_dependencies(iba_global ORB_SLAM2)
@@ -312,7 +335,21 @@ ${G2O_LIBS}
 ${GLOG_LIB}
 ${NOMAD_LIBS}
 )
-target_include_directories(iba_global PUBLIC 
+target_include_directories(iba_global PRIVATE 
+${ORB_INCLUDE_DIRS}
+${NOMAD_INCLUDE_DIR}
+)
+
+add_executable(iba_global_stable src/examples/iba_global_stable.cpp)
+add_dependencies(iba_global_stable ORB_SLAM2)
+target_link_libraries(iba_global_stable
+${ORB_LIBARIES}
+${PCL_LIBRARIES}
+${G2O_LIBS}
+${GLOG_LIB}
+${NOMAD_LIBS}
+)
+target_include_directories(iba_global_stable PRIVATE 
 ${ORB_INCLUDE_DIRS}
 ${NOMAD_INCLUDE_DIR}
 )
@@ -329,6 +366,8 @@ ${CERES_LIBRARIES}
 target_include_directories(uiba_calib_gpr PRIVATE 
 ${ORB_INCLUDE_DIRS}
 ${CERES_INCLUDE_DIRS}
+${IGL_INCLUDE_DIR}
+${IGL_VIEWER_INCLUDE_DIR}
 )
 
 # add_executable(uiba_calib_plane src/examples/uiba_calib_plane.cpp)
