@@ -166,22 +166,22 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
         FindProjectCorrespondences(points, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
         if(corrset.size() < 50)
             continue;
-        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames;
+        std::vector<ORB_SLAM2::KeyFrame*> pConvisKFs;
         if(iba_params.num_best_convis > 0)
-            ConvisKeyFrames = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);  // for debug
+            pConvisKFs = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);  // for debug
         else
         {
-            ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
-            if(ConvisKeyFrames.size() > 10)
-                ConvisKeyFrames.resize(10);  // maximum memory cache of g2o edges
+            pConvisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
+            if(pConvisKFs.size() > 10)
+                pConvisKFs.resize(10);  // maximum memory cache of g2o edges
         }
             
         std::vector<std::map<int, int>> KptMapList; // Keypoint-Keypoint Corr
         std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
-        KptMapList.reserve(ConvisKeyFrames.size());
-        relPoseList.reserve(ConvisKeyFrames.size());
+        KptMapList.reserve(pConvisKFs.size());
+        relPoseList.reserve(pConvisKFs.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
-        for(auto pKFConv:ConvisKeyFrames)
+        for(auto pKFConv:pConvisKFs)
         {
             auto KptMap = pKF->GetMatchedKptIds(pKFConv);
             cv::Mat relPose = pKFConv->GetPose() * invRefPose;  // Transfer from c1 coordinate to c2 coordinate
@@ -209,7 +209,7 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
             std::vector<double> u1_list, v1_list;
             std::vector<Eigen::Matrix3d> R_list;
             std::vector<Eigen::Vector3d> t_list;
-            for(std::size_t pKFConvi = 0; pKFConvi < ConvisKeyFrames.size(); ++pKFConvi){
+            for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
                 auto pKFConv = ConvisKeyFrames[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)

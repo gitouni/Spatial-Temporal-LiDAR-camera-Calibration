@@ -170,13 +170,13 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
         for(const CorrType &corr:corrset)
             indices.push_back(corr.second);
         std::tie(normals, subindices) = ComputeLocalNormal(points, indices, params.norm_radius, params.kdtree3d_max_leaf_size, params.norm_max_pts);
-        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames = pKF->GetBestCovisibilityKeyFramesSafe(10);  // for debug
+        std::vector<ORB_SLAM2::KeyFrame*> pConvisKFs = pKF->GetBestCovisibilityKeyFramesSafe(10);  // for debug
         std::vector<std::map<int, int>> KptMapList; // KeyPoints Correspondence between Reference KF and Convisible KeyFrame
         std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrame
-        KptMapList.reserve(ConvisKeyFrames.size());
-        relPoseList.reserve(ConvisKeyFrames.size());
+        KptMapList.reserve(pConvisKFs.size());
+        relPoseList.reserve(pConvisKFs.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
-        for(auto pKFConv:ConvisKeyFrames)
+        for(auto pKFConv:pConvisKFs)
         {
             auto KptMap = pKF->GetMatchedKptIds(pKFConv);
             cv::Mat relPose = pKFConv->GetPose() * invRefPose;  // Transfer from c1 coordinate to c2 coordinate
@@ -198,8 +198,8 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
             std::vector<double> u1_list, v1_list;
             std::vector<Eigen::Matrix3d> R_list;
             std::vector<Eigen::Vector3d> t_list;
-            for(std::size_t pKFConvi = 0; pKFConvi < ConvisKeyFrames.size(); ++pKFConvi){
-                auto pKFConv = ConvisKeyFrames[pKFConvi];
+            for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
+                auto pKFConv = pConvisKFs[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)
                     continue;

@@ -51,16 +51,33 @@ public:
     bool use_plane = true;
 };
 
-
+/**
+ * @brief Use the Reprojected Pixels of MapPoints as KeyPoint Position,
+ *  find best 2d correspondence between reprojected pointcloud and keypoints point-by-point
+ * 
+ * @param points PointCloud (Camera Coord)
+ * @param pKF Current KeyFrame pointer
+ * @param leaf_size maximum leaf size of the 2d-kdtree
+ * @param max_corr_dist maximum distance threshold to accept a 2d-2d correspondence
+ * @param corrset [keypoint_idx, lidarpoint_idx] (to be assigned)
+ */
 void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyFrame* pKF,
     const int leaf_size, const double max_corr_dist, CorrSet &corrset)
 {
-    VecVector2d vKeyUnEigen;
-    vKeyUnEigen.reserve(pKF->mvKeysUn.size());
-    for (auto &KeyUn:pKF->mvKeysUn)
+    std::unordered_map<int, Eigen::Vector2d> vKeyUnEigen;
+    vKeyUnEigen.reserve(pKF->mmapMpt2Kpt.size());
+    Eigen::Matrix4d Pose;
+    cv::cv2eigen(pKF->GetPoseSafe(), Pose);
+    for(auto const &[pMapPoint,keypt_idx]:pKF->mmapMpt2Kpt)
     {
-        vKeyUnEigen.push_back(Eigen::Vector2d(KeyUn.pt.x, KeyUn.pt.y));
-    }   
+        Eigen::Vector3d MapPointPose;
+        cv::cv2eigen(pMapPoint->GetWorldPos(), MapPointPose);
+        MapPointPose = Pose.topLeftCorner(3, 3) * MapPointPose + Pose.topRightCorner(3, 1);
+        Eigen::Vector2d Keypt;
+        Keypt.x() = pKF->fx * MapPointPose.x() / MapPointPose.z() + pKF->cx;
+        Keypt.y() = pKF->fy * MapPointPose.y() / MapPointPose.z() + pKF->cy;
+        vKeyUnEigen[keypt_idx] = std::move(Keypt);
+    }
     const double fx = pKF->fx, fy = pKF->fy, cx = pKF->cx, cy = pKF->cy;
     const double H = pKF->mnMaxY, W = pKF->mnMaxX;
     VecVector2d ProjectPC;
@@ -71,8 +88,7 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
         if(point.z() > 0){
             double u = (fx * point.x() + cx * point.z())/point.z();
             double v = (fx * point.y() + cy * point.z())/point.z();
-            if (0 <= u && u < W && 0 <= v && v < H)
-            {
+            if (0 <= u && u < W && 0 <= v && v < H){
                 ProjectPC.push_back(Eigen::Vector2d(u, v));
                 ProjectIndex.push_back(i);
             }
@@ -82,16 +98,16 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
     if(ProjectPC.size() == 0)
         return;
     std::unique_ptr<KDTree2D> kdtree (new KDTree2D(2, ProjectPC, leaf_size));
-    for(IndexType i = 0; i < vKeyUnEigen.size(); ++i)
+    for(auto const &[keypt_idx, KeyPoint]:vKeyUnEigen)
     {
         const int num_closest = 1;
         std::vector<IndexType> indices(num_closest);
         std::vector<double> sq_dist(num_closest, std::numeric_limits<double>::max());
         nanoflann::KNNResultSet<double, IndexType> resultSet(num_closest);
         resultSet.init(indices.data(), sq_dist.data());
-        kdtree->index->findNeighbors(resultSet, vKeyUnEigen[i].data(), nanoflann::SearchParameters(0.0F, true));
+        kdtree->index->findNeighbors(resultSet, KeyPoint.data(), nanoflann::SearchParameters());
         if(resultSet.size() > 0 && sq_dist[0] <= max_corr_dist * max_corr_dist)
-            corrset.push_back(std::make_pair(i, ProjectIndex[indices[0]]));
+            corrset.push_back(std::make_pair(keypt_idx, ProjectIndex[indices[0]]));
     }
 }
 
@@ -125,7 +141,7 @@ std::tuple<bool, double> ComputeAlignmentDist(const KDTree3D* kdtree, const VecV
     std::vector<double> sq_dist(norm_max_pts);
     nanoflann::KNNResultSet<double, IndexType> resultSet(norm_max_pts);
     resultSet.init(indices.data(), sq_dist.data());
-    kdtree->index->findNeighbors(resultSet, nn_pt.data(), nanoflann::SearchParameters());  // use query_pt to find a plane
+    kdtree->index->findNeighbors(resultSet, nn_pt.data(), nanoflann::SearchParameters());
     std::size_t k = resultSet.size();
     k = std::distance(sq_dist.begin(),
                 std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
@@ -418,7 +434,6 @@ int main(int argc, char** argv){
     checkpath(base_dir);
     checkpath(pointcloud_dir);
     std::vector<std::string> RawPointCloudFiles, PointCloudFiles;
-    std::vector<ORB_SLAM2::KeyFrame*> KeyFrames;
     IBAGlobalParams iba_params;
     listdir(RawPointCloudFiles, pointcloud_dir);
     // IO Config
@@ -499,7 +514,7 @@ int main(int argc, char** argv){
     ORB_SLAM2::System orb_slam(ORBVocFile, ORBCfgFile, ORB_SLAM2::System::MONOCULAR, false);
     orb_slam.Shutdown(); // Do not need any ORB running threads
     orb_slam.RestoreSystemFromFile(ORBKeyFrameDir, ORBMapFile);
-    KeyFrames = orb_slam.GetAllKeyFrames(true);
+    auto KeyFrames = orb_slam.GetAllKeyFrames(true);
     std::sort(KeyFrames.begin(), KeyFrames.end(), ORB_SLAM2::KeyFrame::lId);
     std::unordered_map<int, int> KFIdMap; // KeyFrame mnId -> FileIndex
     KFIdMap.reserve(KeyFrames.size());

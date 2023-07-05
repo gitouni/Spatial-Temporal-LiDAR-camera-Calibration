@@ -12,31 +12,7 @@
 #include <mutex>
 #include <unordered_set>
 #include <omp.h>
-
-
-class IBAGPRParams{
-public:
-    IBAGPRParams(){};
-public:
-    double max_pixel_dist = 1.5;
-    int num_best_convis = 3;
-    int min_covis_weight = 150;
-    int num_min_corr = 30;
-    int kdtree2d_max_leaf_size = 10;
-    int kdtree3d_max_leaf_size = 30;
-    double neigh_radius = 0.6;
-    int neigh_max_pts = 30;
-    double robust_kernel_delta = 2.98;
-    double init_sigma = 10.;
-    double init_l = 10.;
-    double sigma_noise = 1e-10;
-    int PointCloudSkip = 1;
-    bool PointCloudOnlyPositiveX = false;
-    bool optimize_gpr = true;
-    bool verborse = true;
-};
-
-
+#include <thread>
 
 void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyFrame* pKF,
     const int leaf_size, const double max_corr_dist, CorrSet &corrset)
@@ -109,19 +85,19 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         FindProjectCorrespondences(points, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
         if(corrset.size() < iba_params.num_min_corr)
             continue;
-        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames;
+        std::vector<ORB_SLAM2::KeyFrame*> pConvisKFs;
         if(iba_params.num_best_convis > 0)
-            ConvisKeyFrames = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);  // for debug
+            pConvisKFs = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);  // for debug
         else
         {
-            ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
+            pConvisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
         }
         std::vector<std::map<int, int>> KptMapList; // Keypoint-Keypoint Corr
         std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
-        KptMapList.reserve(ConvisKeyFrames.size());
-        relPoseList.reserve(ConvisKeyFrames.size());
+        KptMapList.reserve(pConvisKFs.size());
+        relPoseList.reserve(pConvisKFs.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
-        for(auto pKFConv:ConvisKeyFrames)
+        for(auto pKFConv:pConvisKFs)
         {
             auto KptMap = pKF->GetMatchedKptIds(pKFConv);
             cv::Mat relPose = pKFConv->GetPose() * invRefPose;  // Transfer from c1 coordinate to c2 coordinate
@@ -135,7 +111,8 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         for(const CorrType &corr:corrset)
             indices.push_back(corr.second);
         std::vector<VecIndex> neighbor_indices;  // Vector of neighbors indices
-        std::tie(neighbor_indices, subindices) = ComputeLocalNeighbor(PointClouds[Fi], PointKDTrees[Fi].get(), indices, iba_params.neigh_radius, iba_params.neigh_max_pts);
+        std::tie(neighbor_indices, subindices) = ComputeLocalNeighbor(PointClouds[Fi], PointKDTrees[Fi].get(), indices,
+             iba_params.neigh_radius, iba_params.neigh_max_pts, iba_params.neigh_min_pts);
         for(std::size_t sub_idx = 0; sub_idx < subindices.size(); ++ sub_idx)
         {
             const IndexType valid_idx = subindices[sub_idx];  // valid idx in corrset
@@ -152,8 +129,8 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             std::vector<double> u1_list, v1_list;
             std::vector<Eigen::Matrix3d> R_list;
             std::vector<Eigen::Vector3d> t_list;
-            for(std::size_t pKFConvi = 0; pKFConvi < ConvisKeyFrames.size(); ++pKFConvi){
-                auto pKFConv = ConvisKeyFrames[pKFConvi];
+            for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
+                auto pKFConv = pConvisKFs[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)
                     continue;
@@ -301,7 +278,7 @@ int main(int argc, char** argv){
         ceres::Solver::Options options;
         options.max_num_iterations = 30;
         options.minimizer_progress_to_stdout = true;
-        options.num_threads = omp_get_max_threads(); // use all threads
+        options.num_threads = std::thread::hardware_concurrency(); // use all threads
         options.linear_solver_type = ceres::DENSE_QR;
         options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
         ceres::Problem problem;

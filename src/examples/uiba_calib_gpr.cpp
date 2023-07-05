@@ -11,29 +11,8 @@
 #include "IBACalib2.hpp"
 #include <mutex>
 #include <unordered_set>
+#include <thread>
 #include <omp.h>
-
-
-class IBAGPRParams{
-public:
-    IBAGPRParams(){};
-public:
-    double max_pixel_dist = 1.5;
-    int min_covis_weight = 150;
-    int kdtree2d_max_leaf_size = 10;
-    int kdtree3d_max_leaf_size = 30;
-    double neigh_radius = 0.6;
-    int neigh_max_pts = 30;
-    double robust_kernel_delta = 2.98;
-    double init_sigma = 10.;
-    double init_l = 10.;
-    double sigma_noise = 1e-10;
-    int PointCloudSkip = 1;
-    bool PointCloudOnlyPositiveX = false;
-    bool optimize_gpr = true;
-    bool verborse = true;
-};
-
 
 
 void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyFrame* pKF,
@@ -86,7 +65,6 @@ void initInput(std::vector<std::vector<double>> &param_list, const std::vector<O
     param_list.resize(KeyFrames.size() + 1);  // Sim3 Extrinsic + N KeyFrame poses
     param_list[0].resize(7);
     std::copy(init_sim3_log.data(), init_sim3_log.data()+7, param_list[0].data());
-    int posei = 0;
     for(std::size_t pKFi = 0; pKFi < KeyFrames.size(); ++pKFi)
     {
         auto const &pKF = KeyFrames[pKFi];
@@ -96,8 +74,7 @@ void initInput(std::vector<std::vector<double>> &param_list, const std::vector<O
         g2o::Vector6 se3_log = SE3Log(poseEigen.topLeftCorner(3, 3), poseEigen.topRightCorner(3, 1));
         param_list[pKFi+1].resize(6);
         std::copy(se3_log.data(), se3_log.data() + 6, param_list[pKFi+1].data());
-        KFIdMap.insert(std::make_pair(int(pKF->mnId), posei));
-        ++posei;
+        KFIdMap[static_cast<int>(pKF->mnId)] = static_cast<int>(pKFi);
     }
 }
 
@@ -128,13 +105,13 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         FindProjectCorrespondences(points, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
         if(corrset.size() < 50)
             continue;
-        std::vector<ORB_SLAM2::KeyFrame*> ConvisKeyFrames = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);  // for debug
+        std::vector<ORB_SLAM2::KeyFrame*> pConvisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);  // for debug
         std::vector<std::map<int, int>> KptMapList; // Keypoint-Keypoint Corr
         std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
-        KptMapList.reserve(ConvisKeyFrames.size());
-        relPoseList.reserve(ConvisKeyFrames.size());
+        KptMapList.reserve(pConvisKFs.size());
+        relPoseList.reserve(pConvisKFs.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
-        for(auto pKFConv:ConvisKeyFrames)
+        for(auto pKFConv:pConvisKFs)
         {
             auto KptMap = pKF->GetMatchedKptIds(pKFConv);
             cv::Mat relPose = pKFConv->GetPose() * invRefPose;  // Transfer from c1 coordinate to c2 coordinate
@@ -168,8 +145,8 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             std::vector<double*> param_blocks;
             param_blocks.push_back(param_list[0].data()); // extrinsic log
             param_blocks.push_back(param_list[Fi+1].data()); // Reference Pose
-            for(std::size_t pKFConvi = 0; pKFConvi < ConvisKeyFrames.size(); ++pKFConvi){
-                auto pKFConv = ConvisKeyFrames[pKFConvi];
+            for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
+                auto pKFConv = pConvisKFs[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)
                     continue;
@@ -318,7 +295,7 @@ int main(int argc, char** argv){
         ceres::Solver::Options options;
         options.max_num_iterations = 30;
         options.minimizer_progress_to_stdout = true;
-        options.num_threads = omp_get_max_threads(); // use all threads
+        options.num_threads = std::thread::hardware_concurrency(); // use all threads
         options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
         options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
         ceres::Problem problem;
