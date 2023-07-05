@@ -157,7 +157,7 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         TransformPointCloud(PointClouds[Fi], points, initSE3);
         Eigen::Matrix3d Rcw;
         Eigen::Vector3d tcw;
-        Eigen::Matrix4d Tcw;
+        Eigen::Matrix4d Tcw = Eigen::Matrix4d::Identity();
         std::tie(Rcw, tcw) = SE3Exp<double>(pose_params[Fi].data());
         Tcw.topLeftCorner(3,3) = Rcw;
         Tcw.topRightCorner(3,1) = tcw;
