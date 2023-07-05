@@ -1,6 +1,7 @@
 #pragma once
 #include <g2o/core/base_vertex.h>
 #include <g2o/core/sparse_optimizer.h>
+#include <g2o/types/sba/types_six_dof_expmap.h>
 #include <vector>
 #include <map>
 #include <string>
@@ -67,6 +68,13 @@ g2o::MatrixN<3, T> skew(const g2o::VectorN<3, T> &v) {
     return m;
 }
 
+g2o::Vector3 SO3Log(const g2o::Matrix3 &rotation)
+{
+    Eigen::AngleAxisd ax;
+    ax.fromRotationMatrix(rotation);
+    return ax.angle() * ax.axis();
+}
+
 g2o::Vector6 SE3Log(const g2o::Matrix3 &rotation, const g2o::Vector3 &translation)
 {
     g2o::SE3Quat quat(rotation, translation);
@@ -79,6 +87,12 @@ g2o::Vector7 Sim3Log(const g2o::Matrix3 &rotation, const g2o::Vector3 &translati
     res.head<6>() = SE3Log(rotation, translation);
     res[6] = scale;
     return res;
+}
+
+template <typename T>
+inline std::tuple<g2o::MatrixN<3, T>, g2o::VectorN<3, T> > InvPose(const g2o::MatrixN<3, T> &R, const g2o::VectorN<3, T> &t)
+{
+    return {R.transpose(), -R.transpose() * t};
 }
 
 /**
@@ -129,7 +143,7 @@ std::tuple<g2o::MatrixN<3, T>, g2o::VectorN<3, T>, T> Sim3Exp(const T* update)
  * @brief Template SE3 ExpMap (only used first 6 params)
  * 
  * @tparam T 
- * @param update [omega upsilon]
+ * @param update [omega upsilon] and its size can be longer than 6
  * @return std::tuple<g2o::MatrixN<3, T>, g2o::VectorN<3, T> > 
  */
 template <typename T>
@@ -166,6 +180,53 @@ std::tuple<g2o::MatrixN<3, T>, g2o::VectorN<3, T> > SE3Exp(const T* update)
             (theta - sinth) * invth3 * Omega2);
     }
     return {R, V * upsilon};
+}
+
+/**
+ * @brief Template SE3 ExpMap (only used first 6 params)
+ * 
+ * @tparam T 
+ * @param update [omega upsilon] and its size can be longer than 6
+ * @return std::tuple<g2o::MatrixN<3, T>, g2o::VectorN<3, T> > 
+ */
+template <typename T>
+g2o::MatrixN<4, T> SE3Exp4x4(const T* update)
+{
+    g2o::VectorN<3, T> omega;
+    g2o::VectorN<3, T> upsilon;
+    for (int i = 0; i < 3; i++) omega[i] = update[i];
+    for (int i = 0; i < 3; i++) upsilon[i] = update[i + 3];
+
+    T theta = omega.norm();
+    g2o::MatrixN<3, T> Omega = skew<T>(omega);
+
+    g2o::MatrixN<3, T> R;
+    g2o::MatrixN<3, T> V;
+    g2o::MatrixN<3, T> I = g2o::MatrixN<3, T>::Identity();
+    if (theta < T(1e-4))  // Use Taylor Series Approximation
+    {
+        g2o::MatrixN<3, T> Omega2 = Omega * Omega;
+        R = (I + Omega + T(0.5) * Omega2);
+        V = (I + T(0.5) * Omega + T(1.) / T(6.) * Omega2);
+    }
+    else 
+    {
+        g2o::MatrixN<3, T> Omega2 = Omega * Omega;
+        T costh = cos(theta); // cos function Not Implemented By cmath !!! , see Jet.h
+        T sinth = sin(theta); // sin function Not Implemented By cmath !!! , see Jet.h
+        T invth2 = pow(theta, -2);  // pow function Not Implemented By cmath !!! , see Jet.h
+        T invth3 = pow(theta, -3);  // pow function Not Implemented By cmath !!! , see Jet.h
+        R = (I + sinth / theta * Omega +
+            (T(1.) - costh) * invth2 * Omega2);
+        V = (I +
+            (T(1.) - costh) * invth2 * Omega +
+            (theta - sinth) * invth3 * Omega2);
+    }
+    g2o::MatrixN<4, T> rigid;
+    rigid.setIdentity();
+    rigid.topLeftCorner(3, 3) = R;
+    rigid.topRightCorner(3, 1) = V * upsilon;
+    return rigid;
 }
 
 std::map<std::string, double> LogEdges(std::vector<double>& err_list)

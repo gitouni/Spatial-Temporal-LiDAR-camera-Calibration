@@ -25,9 +25,7 @@ MatrixX<T> IdentityLike(const MatrixX<T> &A)
     assert(A.rows() == A.cols());
     MatrixX<T> I;
     I.resizeLike(A);
-    I.setZero();
-    for(Eigen::Index ri = 0; ri < I.rows(); ++ri)
-        I(ri, ri) = T(1.0);
+    I.setIdentity();
     return I;
 }
 
@@ -41,11 +39,13 @@ void pdist(const std::vector<Vector2<T> > &X1, const std::vector<Vector2<T> > &X
 
 template <typename T = number_t>
 void self_pdist(const std::vector<Vector2<T> > &X1, MatrixX<T> &Dist){
+    // pdist(X1, X1, Dist);
     Dist.resize(X1.size(), X1.size());
-    for(Eigen::Index ri = 0; ri < Dist.rows(); ++ri)
+    for(Eigen::Index ri = 0; ri < Dist.rows() - 1; ++ri)
         for(Eigen::Index ci = ri + 1; ci < Dist.cols(); ++ci)
         {
-            Dist(ri, ci) = (X1[ri] - X1[ci]).dot(X1[ri] - X1[ci]);  // sqaured
+            const Vector2<T> d = X1[ri] - X1[ci];
+            Dist(ri, ci) = d.dot(d);  // sqaured
             Dist(ci, ri) = Dist(ri, ci);
         }
     for(Eigen::Index ri = 0; ri < Dist.rows(); ++ri)
@@ -156,7 +156,10 @@ public:
         double l = parameters[1];
         MatrixX<> Kff, L, Kinv;  // (N, N)
         VectorX<> alpha;  // (N, 1)
-        std::tie(Kff, L ,alpha, Kinv) = compute_K_L_Alpha_Kinv(sigma, l, Dist, trY);
+        bool state;
+        std::tie(Kff, L ,alpha, Kinv, state) = compute_K_L_Alpha_Kinv(sigma, l, Dist, trY);
+        if(!state)
+            return false;   
         int n = alpha.rows();
         cost[0] = 0.5 * (trY.dot(alpha) + LogDet(L) + n * log(2 * M_PI));
         if(gradient)
@@ -188,20 +191,25 @@ private:
      * @param train_y 
      * @return std::tuple<MatrixX<T>, MatrixX<T>, VectorX<T>, atrixX<> > Kff, L, alpha, Kff_inv
      */
-    std::tuple<MatrixX<>, MatrixX<>, VectorX<>, MatrixX<> > compute_K_L_Alpha_Kinv(const double sigma ,const double l, MatrixX<> Dist, VectorX<> train_y) const
+    std::tuple<MatrixX<>, MatrixX<>, VectorX<>, MatrixX<>, bool > compute_K_L_Alpha_Kinv(const double sigma ,const double l, MatrixX<> Dist, VectorX<> train_y) const
     {
         assert(Dist.rows() == train_y.rows());
         MatrixX<> Kff = computeCovariance(sigma, l, Dist);
         Kff += sigma_noise * IdentityLike(Kff);
         Eigen::LLT<MatrixX<>> llt(Kff);
-        assert(llt.info() == Eigen::Success);  // if failed, enlarge the sigma_noise to ensure the PSD of Kff
+        if(llt.info() != Eigen::Success)
+        {
+            MatrixX<> L; VectorX<> alpha; MatrixX<> Kinv;
+            return {Kff, L, alpha, Kinv, false}; // if failed, enlarge the sigma_noise to ensure the PSD of Kff
+        }
+            
         VectorX<> alpha = llt.solve(train_y);
         MatrixX<> L = llt.matrixL();
         MatrixX<> Kinv; // assign Identity first, then solve inplace
         Kinv.resizeLike(Kff);
         Kinv.setIdentity();
         llt.solveInPlace(Kinv);
-        return {Kff, L, alpha, Kinv};
+        return {Kff, L, alpha, Kinv, true};
     }
 
     MatrixX<> computeCovariance(const double sigma, const double l, MatrixX<> Dist) const
@@ -351,8 +359,7 @@ public:
             double theta[2] = {sigma, l};
             ceres::GradientProblem problem(new GPRHyperLoss(Dist, trY, sigma_noise));
             ceres::GradientProblemSolver::Options options;
-            options.max_num_iterations = 30;
-            options.line_search_direction_type = ceres::BFGS;
+            options.max_num_iterations = 15;
             options.logging_type = ceres::SILENT; // suppress warning
             options.minimizer_progress_to_stdout = false;
             ceres::GradientProblemSolver::Summary summary;

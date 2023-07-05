@@ -115,7 +115,7 @@ public:
 };
 
 std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibRobustKernelg2o(const std::vector<Eigen::Isometry3d> &vTa, const std::vector<Eigen::Isometry3d> &vTb,
-    const Eigen::Matrix3d &initialRotation, const Eigen::Vector3d &initialTranslation, const double &initialScale,
+    const Eigen::Matrix3d &initialRotation, const Eigen::Vector3d &initialTranslation, const double &initialScale, const double &robust_kernel_size=0.1,
     const bool regulation=true, const double regulation_ratio= 0.005, const bool verbose=true){
 
     typedef g2o::BlockSolver<g2o::BlockSolverTraits<7, 3>> BlockSolverType; 
@@ -141,7 +141,7 @@ std::tuple<Eigen::Matrix3d, Eigen::Vector3d, double> HECalibRobustKernelg2o(cons
         edge->setVertex(0, v);
         edge->setInformation(Eigen::Matrix3d::Identity());
         g2o::RobustKernelHuber* rk(new g2o::RobustKernelHuber);
-        rk->setDelta(0.1);
+        rk->setDelta(robust_kernel_size);
         edge->setRobustKernel(rk);
         optimizer.addEdge(edge);
     }

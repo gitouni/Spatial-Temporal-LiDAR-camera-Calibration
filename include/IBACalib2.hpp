@@ -5,6 +5,123 @@
 #include "GPR.hpp"
 #include "g2o_tools.h"
 
+class IBAPlaneParams{
+public:
+    IBAPlaneParams(){};
+public:
+    double max_pixel_dist = 1.5;
+    int num_best_convis = 3;
+    int min_covis_weight = 100;
+    int num_min_corr = 30;
+    int kdtree2d_max_leaf_size = 10;
+    int kdtree3d_max_leaf_size = 30;
+    double norm_radius = 0.6;
+    int norm_max_pts = 30;
+    int max_iba_iter = 30;
+    int inner_iba_iter = 10;
+    double robust_kernel_delta = 2.98;
+    double robust_kernel_3ddelta = 1.0;
+    double sq_err_threshold = 225.;
+    int PointCloudSkip = 1;
+    bool PointCloudOnlyPositiveX = false;
+    bool verborse = true;
+};
+
+class IBAGPRParams{
+public:
+    IBAGPRParams(){};
+public:
+    double max_pixel_dist = 1.5;
+    int num_best_convis = 3;
+    int min_covis_weight = 150;
+    int num_min_corr = 30;
+    int kdtree2d_max_leaf_size = 10;
+    int kdtree3d_max_leaf_size = 30;
+    double neigh_radius = 0.6;
+    int neigh_max_pts = 30;
+    int neigh_min_pts = 5;
+    double robust_kernel_delta = 2.98;
+    double init_sigma = 10.;
+    double init_l = 10.;
+    double sigma_noise = 1e-10;
+    int PointCloudSkip = 1;
+    bool PointCloudOnlyPositiveX = false;
+    bool optimize_gpr = true;
+    bool verborse = true;
+};
+
+
+class IBAGPR3dParams{
+public:
+    IBAGPR3dParams(){};
+public:
+    double max_pixel_dist = 1.5;
+    double max_3d_dist = 1.0;
+    double corr_3d_2d_threshold = 40.;
+    double corr_3d_3d_threshold = 5.;
+    double he_threshold = 0.05;
+    int num_best_convis = 3;
+    int min_covis_weight = 150;
+    int num_min_corr = 30;
+    int kdtree2d_max_leaf_size = 10;
+    int kdtree3d_max_leaf_size = 30;
+    double neigh_radius = 0.6;
+    double norm_radius = 0.6;
+    int norm_max_pts = 30;
+    int norm_min_pts = 5;
+    double min_diff_dist = 0.2;
+    double norm_reg_threshold = 0.04;
+    std::vector<double> err_weight = {1.0, 1.0};
+    double pvalue = 3.0;
+    double min_eval = 0.1;
+    int neigh_max_pts = 30;
+    int neigh_min_pts = 5;
+    double robust_kernel_delta = 2.98;
+    double robust_kernel_3ddelta = 1.0;
+    double init_sigma = 10.;
+    double init_l = 10.;
+    double sigma_noise = 1e-10;
+    int PointCloudSkip = 1;
+    bool use_plane = true;
+    bool PointCloudOnlyPositiveX = false;
+    bool optimize_gpr = true;
+    bool verborse = true;
+};
+
+
+class IBALocalParams{
+public:
+    IBALocalParams(){};
+public:
+
+    double max_pixel_dist = 1.5;
+    double max_3d_dist = 1.0;
+    double corr_3d_2d_threshold = 40.;
+    double corr_3d_3d_threshold = 5.;
+    double he_threshold = 0.05;
+    int num_min_corr = 30;
+    int kdtree2d_max_leaf_size = 10;
+    int kdtree3d_max_leaf_size = 30;
+    double norm_radius = 0.6;
+    int norm_max_pts = 30;
+    int norm_min_pts = 5;
+    double min_diff_dist = 0.2;
+    double norm_reg_threshold = 0.001;
+    double pvalue = 3.0;
+    double min_eval = 0.1;
+    double robust_kernel_delta = 5.0;
+    double robust_kernel_3ddelta = 1.0;
+    double init_sigma = 10.;
+    double init_l = 10.;
+    double sigma_noise = 1e-10;
+    int PointCloudSkip = 1;
+    bool use_plane = true;
+    bool PointCloudOnlyPositiveX = false;
+    bool optimize_gpr = true;
+    bool verborse = true;
+};
+
+
 struct IBA_PlaneFactor{
 public:
     IBA_PlaneFactor(const double &_fx, const double &_fy, const double &_cx, const double &_cy,
@@ -441,6 +558,91 @@ public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
+struct Point2Point_Factor{
+public:
+    Point2Point_Factor(const Eigen::Vector3d &_MapPoint, const Eigen::Vector3d &_QueryPoint):
+        MapPoint(_MapPoint), QueryPoint(_QueryPoint){}
+    template <typename T>
+    bool operator()(const T* data, T* error) const
+    {
+        T inv_se3_calib[6] = {-data[0], -data[1], -data[2], -data[3], -data[4], -data[5]};
+        MatrixN<3, T>  _Rlc;
+        VectorN<3, T>  _tlc;
+        T _s = data[6];
+        std::tie(_Rlc, _tlc) = SE3Exp<T>(inv_se3_calib);
+        VectorN<3, T> _MapPoint = _Rlc * (MapPoint.cast<T>() * _s) + _tlc;
+        VectorN<3, T> _QueryPoint = QueryPoint.cast<T>();
+        error[0] = _MapPoint[0] - _QueryPoint[0];
+        error[1] = _MapPoint[1] - _QueryPoint[1];
+        error[2] = _MapPoint[2] - _QueryPoint[2];
+        return true;
+    }
+    /**
+     * @brief Construct Point2Point Align Error for Tcl optimization
+     * 
+     * @param _MapPoint Pose of MapPoint in camera coord
+     * @param _QueryPoint Matched Lidar Point in lidar coord
+     * @return ceres::CostFunction* 
+     */
+    static ceres::CostFunction *Create(const Eigen::Vector3d &_MapPoint, const Eigen::Vector3d &_QueryPoint){
+        ceres::AutoDiffCostFunction<Point2Point_Factor, 3, 7> *cost_func = new ceres::AutoDiffCostFunction<Point2Point_Factor, 3, 7>(
+            new Point2Point_Factor(_MapPoint, _QueryPoint)
+        );
+        return cost_func;
+    }
+
+private:
+    const Eigen::Vector3d MapPoint;
+    const Eigen::Vector3d QueryPoint;
+    
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+};
+
+struct Point2Plane_Factor{
+public:
+    Point2Plane_Factor(const Eigen::Vector3d &_MapPoint, const Eigen::Vector3d &_QueryPoint, const Eigen::Vector3d &_normal):
+        MapPoint(_MapPoint), QueryPoint(_QueryPoint), normal(_normal){}
+    template <typename T>
+    bool operator()(const T* data, T* error) const
+    {
+        T inv_se3_calib[6] = {-data[0], -data[1], -data[2], -data[3], -data[4], -data[5]};
+        MatrixN<3, T> _Rcl, _Rlc;
+        VectorN<3, T> _tcl, _tlc;
+        T _s;
+        std::tie(_Rcl, _tcl, _s) = Sim3Exp<T>(data);
+        std::tie(_Rlc, _tlc) = SE3Exp<T>(inv_se3_calib);
+        VectorN<3, T> _MapPoint = _Rlc * (MapPoint.cast<T>() * _s) + _tlc;
+        VectorN<3, T> _QueryPoint = QueryPoint.cast<T>();
+        VectorN<3, T> _normal = normal.cast<T>();
+        error[0] = (_MapPoint - _QueryPoint).dot(_normal);
+        return true;
+    }
+
+    /**
+     * @brief Construct Point2Point Align Error for Tcl optimization
+     * 
+     * @param _MapPoint Pose of MapPoint in camera coord
+     * @param _QueryPoint Matched Lidar Point in lidar coord
+     * @param _normal normal of _QueryPoint
+     * @return ceres::CostFunction* 
+     */
+    static ceres::CostFunction *Create(const Eigen::Vector3d &_MapPoint, const Eigen::Vector3d &_QueryPoint, const Eigen::Vector3d &_normal){
+        ceres::AutoDiffCostFunction<Point2Plane_Factor, 1, 7> *cost_func = new ceres::AutoDiffCostFunction<Point2Plane_Factor, 1, 7>(
+            new Point2Plane_Factor(_MapPoint, _QueryPoint, _normal)
+        );
+        return cost_func;
+    }
+
+private:
+    const Eigen::Vector3d MapPoint;
+    const Eigen::Vector3d QueryPoint;
+    const Eigen::Vector3d normal;
+    
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+};
 
 struct IBA_GPR3dFactor{
 
@@ -450,14 +652,14 @@ public:
      const double &_fx, const double &_fy, const double &_cx, const double &_cy,
      const double &_u0, const double &_v0, const std::vector<double> &_u1_list, const std::vector<double> &_v1_list, 
      const std::vector<Eigen::Matrix3d> &_R_list, const std::vector<Eigen::Vector3d> &_t_list,
-     const Eigen::Vector3d &_MapPoint, const Eigen::Matrix4d &_Tcw,
+     const Eigen::Vector3d &_MapPoint,
      const bool _optimize=false, const bool _verborse=false,
      const Eigen::Vector2d &_lb=(Eigen::Vector2d() << 1e-3, 1e-3).finished(),
      const Eigen::Vector2d &_ub=(Eigen::Vector2d() << 1e3, 1e3).finished()):
      sigma(_sigma), l(_l), sigma_noise(_sigma_noise), neigh_pts(_neigh_pts),
      H(_H), W(_W), fx(_fx), fy(_fy), cx(_cx), cy(_cy),
      u0(_u0), v0(_v0), u1_list(_u1_list), v1_list(_v1_list),
-     NConv(u1_list.size()), R_list(_R_list), t_list(_t_list), MapPoint(_MapPoint), Tcw(_Tcw)
+     NConv(u1_list.size()), R_list(_R_list), t_list(_t_list), MapPoint(_MapPoint)
      {
         GPRParams gpr_params;
         gpr_params.sigma = _sigma;
@@ -531,11 +733,9 @@ public:
             error[2*i+1] = _v1_obs - _v1;
         }
         VectorN<3, T> _MapPoint = MapPoint.cast<T>() * _s;  // MapPoint with real size
-        MatrixN<4, T> _Tcw = Tcw.cast<T>();
-        _MapPoint = _Tcw.topLeftCorner(3, 3) * _MapPoint + _Tcw.topRightCorner(3, 1) * _s;  // Pose of MapPoint for Reference Camera
-        error[2*NConv + 1] = _MapPoint(0) - _P0(0);
-        error[2*NConv + 2] = _MapPoint(1) - _P0(1);
-        error[2*NConv + 3] = _MapPoint(2) - _P0(2);
+        error[2*NConv] = _MapPoint(0) - _P0(0);
+        error[2*NConv + 1] = _MapPoint(1) - _P0(1);
+        error[2*NConv + 2] = _MapPoint(2) - _P0(2);
         return true;
     }
 
@@ -560,7 +760,7 @@ public:
      * @param _v1_list second correspondence point y
      * @param _R_list list of relative pose (Rotation)
      * @param _t_list list of relative pose (translation)
-     * @param _MapPoint mapPoint camera world Pose
+     * @param _MapPoint mapPoint (Ref Camera Coord)
      * @param _Tcw Referece Frame pose (world to camera)
      * @param _optimize whether to optimize GPR kenerl hyperparameters
      * @param _verborse open it while debugging
@@ -574,14 +774,14 @@ public:
         const double &_u0, const double &_v0, 
         const std::vector<double> &_u1_list, const std::vector<double> &_v1_list,
         const std::vector<Eigen::Matrix3d> &_R_list, const std::vector<Eigen::Vector3d> &_t_list,
-        const Eigen::Vector3d &_MapPoint, const Eigen::Matrix4d &_Tcw,
+        const Eigen::Vector3d &_MapPoint,
         const bool _optimize=false, const bool _verborse=false,
         const Eigen::Vector2d &_lb=(Eigen::Vector2d() << 1e-3, 1e-3).finished(),
         const Eigen::Vector2d &_ub=(Eigen::Vector2d() << 1e3, 1e3).finished())
      {
         ceres::DynamicAutoDiffCostFunction<IBA_GPR3dFactor, 6> *cost_func = new ceres::DynamicAutoDiffCostFunction<IBA_GPR3dFactor, 6>(
             new IBA_GPR3dFactor(_sigma, _l, _sigma_noise, _neigh_pts, _init_SE3, _H, _W, _fx, _fy, _cx, _cy,
-            _u0, _v0, _u1_list, _v1_list, _R_list, _t_list, _MapPoint, _Tcw, _optimize, _verborse, _lb, _ub
+            _u0, _v0, _u1_list, _v1_list, _R_list, _t_list, _MapPoint, _optimize, _verborse, _lb, _ub
         ));
         cost_func->SetNumResiduals(2*_u1_list.size() + 3);  // 2n for IBA ,3 for 3d error
         cost_func->AddParameterBlock(7);
@@ -598,11 +798,75 @@ private:
     const std::vector<Eigen::Matrix3d> R_list;
     const std::vector<Eigen::Vector3d> t_list;
     const Eigen::Vector3d MapPoint;
-    const Eigen::Matrix4d Tcw;
 
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
+
+
+struct Quadratic_AlignFactor{
+public:
+    Quadratic_AlignFactor(const Eigen::Vector3d &_MapPoint,
+     const Eigen::Matrix3d &_base, const double &_r1, const double &_r2,
+     const Eigen::Vector3d &_nn_pt):
+     MapPoint(_MapPoint), base(_base), r1(_r1), r2(_r2), nn_pt(_nn_pt){}
+
+    template <typename T>
+    bool operator()(T const* calib_sim3, T* error) const
+    {
+        T _r1(r1), _r2(r2);
+        T inv_se3_calib[6] = {-calib_sim3[0], -calib_sim3[1], -calib_sim3[2], -calib_sim3[3], -calib_sim3[4], -calib_sim3[5]};
+        VectorN<3, T> _nn_pt = nn_pt.cast<T>();
+        VectorN<3, T> _nn_normal = base.row(2).cast<T>();
+        MatrixN<3, T> _Rcl, _Rlc;
+        VectorN<3, T> _tcl, _tlc;
+        T _s;
+        std::tie(_Rcl, _tcl, _s) = Sim3Exp<T>(calib_sim3); // data[0] stores the Lie Algebra of Extrinsic Matrix
+        VectorN<3, T> _MapPoint = MapPoint.cast<T>() * _s;  // MapPoint with real size
+        std::tie(_Rlc, _tlc) = SE3Exp<T>(inv_se3_calib);
+        _MapPoint = _Rlc * _MapPoint + _tlc; // Lidar Coord
+        VectorN<3, T> _FrenetPoint = base.cast<T>() * _MapPoint;  // Frenet Frame
+        T _d = abs((_FrenetPoint - _nn_pt).dot(_nn_normal));  // point to plane distance (approximate distance to normal footpoint)
+        T _k1 = sqrt(_d / (_d + _r1)), _k2 = sqrt(_d / (_d + _r2));
+        error[0] = _k1 * _FrenetPoint[0];
+        error[1] = _k2 * _FrenetPoint[1];
+        error[2] = _FrenetPoint[2];
+        return true;
+    }
+    /**
+     * @brief Qudratic Alignment Metric. Compute the Qudratic distance between the MapPoint and the PointCloud Local Surface
+     * 
+     * @param _MapPoint MapPoint in the Reference KeyFrame
+     * @param _base base transformation from global to Frenet Frame
+     * @param _r1 principle radius (abs)
+     * @param _r2 principle radius (abs), whose direction is perpendicular to _r1
+     * @param _nn_pt the nearest (SO3 normal) point of the surface to the query
+     * @return ceres::CostFunction* 
+     */
+    static ceres::CostFunction *Create(const Eigen::Vector3d &_MapPoint,
+        const Eigen::Matrix3d &_base, const double &_r1, const double &_r2,
+        const Eigen::Vector3d &_nn_pt)
+    {
+        ceres::AutoDiffCostFunction<Quadratic_AlignFactor, 3, 7> *cost_func = new ceres::AutoDiffCostFunction<Quadratic_AlignFactor, 3, 7>(
+            new Quadratic_AlignFactor(_MapPoint, _base, _r1, _r2, _nn_pt)
+        );
+        return cost_func;
+    }
+
+
+private:
+    const Eigen::Vector3d MapPoint; // MapPoint in Reference Camera Coord
+    const Eigen::Matrix3d base;  // base vectors e1, e2, e3 to transform point from Cartesian to Frenet Frame
+    const double r1,r2;  // curvature radii cooresponding to two principle curvatures
+    const Eigen::Vector3d nn_pt;  // nearest point
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+};
+
+
+
+
+
 
 
 struct UIBA_PlaneFactor{
@@ -859,4 +1123,256 @@ private:
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
+};
+
+class BACostFunction : public ceres::SizedCostFunction<1, 6, 3>{
+public:
+    /**
+     * @brief Construct a new BACostFunction object
+     * 
+     * @param _MapPoint WorldPose of the MapPoint
+     * @param _u0 measurement x coordinate of the keypoint
+     * @param _v0 measurementyx coordinate of the keypoint
+     * @param _fx focal x length
+     * @param _fy focal y length
+     * @param _cx principle x length
+     * @param _cy principle y length
+     */
+    BACostFunction(const double &_u0, const double &_v0,
+        const double &_fx, const double &_fy, const double &_cx, const double &_cy):
+         u0(_u0), v0(_v0), fx(_fx), fy(_fy), cx(_cx), cy(_cy){}
+    
+    bool Evaluate(double const* const* parameters, double* residuals, double** jacobians) const override
+    {
+        Eigen::Matrix3d rotation;
+        Eigen::Vector3d translation;
+        std::tie(rotation, translation) = SE3Exp<double>(parameters[0]);
+        Eigen::Vector3d MptWorld(parameters[1]);
+        Eigen::Vector3d P = rotation * MptWorld + translation;
+        double invz = 1.0 / P.z();
+        double invz2 = invz * invz;
+        double u1 = fx * P.x() * invz + cx;
+        double v1 = fy * P.y() * invz + cy;
+        residuals[0] = u0 - u1;  // measurement - observation
+        residuals[1] = v0 - v1;  // measurement - observation
+        if (jacobians != nullptr)
+        {
+            if(jacobians[0] != nullptr)
+            {
+                Eigen::Map<Eigen::Matrix<double, 2, 6, Eigen::RowMajor> > Jpose(jacobians[0]);
+                Jpose.row(0) << fx * P.x() * P.y() * invz2, -fx * P.x() * P.x() * invz2, fx * P.y() * invz, -fx * invz, 0, fx * P.x() * invz2;
+                Jpose.row(1) << fy + fy * P.y() * P.y() * invz2, -fy * P.x() * P.y() * invz2, -fy * P.x() * invz, 0, -fy * invz, fy * P.y() * invz2;
+
+            }
+            if(jacobians[1] != nullptr)
+            {
+                Eigen::Map<Eigen::Matrix<double, 2, 3, Eigen::RowMajor> > Jpoint(jacobians[1]);
+                Jpoint.row(0) << -fx * invz,   0,  fx * P.x() * invz2,
+                Jpoint.row(1) << 0,  -fy * invz, fy * P.y() * invz2; 
+                Jpoint = Jpoint * rotation;
+            }
+        }
+        return true;
+    }
+private:
+    const double u0, v0;
+    const double fx, fy, cx, cy;
+};
+
+struct BA_Factor{
+public:
+    BA_Factor(const double &_u0, const double &_v0,
+        const double &_fx, const double &_fy, const double &_cx, const double &_cy):
+         u0(_u0), v0(_v0), fx(_fx), fy(_fy), cx(_cx), cy(_cy){}
+
+    template <typename T>
+    bool operator()(const T* cam_pose, const T* map_point, T* error) const
+    {
+        VectorN<3, T> _MapPoint(map_point);
+        MatrixN<3, T> _Rcw;
+        VectorN<3, T> _tcw;
+        std::tie(_Rcw, _tcw) = SE3Exp<T>(cam_pose);
+        _MapPoint = _Rcw * _MapPoint + _tcw;
+        T _u0(u0), _v0(v0), _fx(fx), _fy(fy), _cx(cx), _cy(cy);
+        error[0] = _fx * _MapPoint[0] / _MapPoint[2] + _cx - _u0;
+        error[1] = _fy * _MapPoint[1] / _MapPoint[2] + _cy - _v0;
+        return true;
+    }
+    /**
+     * @brief Construct a new BA_Factor object 
+     * input param blocks: cam_pose (6), map_worldpose (3), 
+     * Joint Optimization for cam_pose and map_point
+     * @param _u0 measurement x coordinate of the keypoint
+     * @param _v0 measurementyx coordinate of the keypoint
+     * @param _fx focal x length
+     * @param _fy focal y length
+     * @param _cx principle x length
+     * @param _cy principle y length
+     */
+    static ceres::CostFunction *Create(const double &_u0, const double &_v0,
+        const double &_fx, const double &_fy, const double &_cx, const double &_cy)
+    {
+        ceres::AutoDiffCostFunction<BA_Factor, 2, 6, 3> *cost_func = new ceres::AutoDiffCostFunction<BA_Factor, 2, 6, 3>(
+            new BA_Factor(_u0, _v0, _fx, _fy, _cx, _cy)
+        );
+        return cost_func;
+    }
+
+private:
+    const double u0, v0;
+    const double fx, fy, cx, cy;
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+};
+
+
+struct BAStructure_Factor{
+public:
+    BAStructure_Factor(const Eigen::Matrix4d &_Tcw, const double &_u0, const double &_v0,
+        const double &_fx, const double &_fy, const double &_cx, const double &_cy):
+         Tcw(_Tcw), u0(_u0), v0(_v0), fx(_fx), fy(_fy), cx(_cx), cy(_cy){}
+    BAStructure_Factor(const double *Tcw_log, const double &_u0, const double &_v0,
+        const double &_fx, const double &_fy, const double &_cx, const double &_cy):
+         u0(_u0), v0(_v0), fx(_fx), fy(_fy), cx(_cx), cy(_cy)
+         {
+            Tcw = SE3Exp4x4<double>(Tcw_log);
+         }
+
+    template <typename T>
+    bool operator()(const T* map_point, T* error) const
+    {
+        VectorN<3, T> _MapPoint(map_point);
+        MatrixN<4, T> _Tcw = Tcw.cast<T>();
+        _MapPoint = _Tcw.topLeftCorner(3, 3) * _MapPoint + _Tcw.topRightCorner(3, 1);
+        T _u0(u0), _v0(v0), _fx(fx), _fy(fy), _cx(cx), _cy(cy);
+        error[0] = _fx * _MapPoint[0] / _MapPoint[2] + _cx - _u0;
+        error[1] = _fy * _MapPoint[1] / _MapPoint[2] + _cy - _v0;
+        return true;
+    }
+    /**
+     * @brief Construct a new BAStructure_Factor object 
+     * input param blocks: cam_pose (6), map_worldpose (3), 
+     * optimization for Mappoint only
+     * @param _Tcw Current Camera Pose
+     * @param _u0 measurement x coordinate of the keypoint
+     * @param _v0 measurementyx coordinate of the keypoint
+     * @param _fx focal x length
+     * @param _fy focal y length
+     * @param _cx principle x length
+     * @param _cy principle y length
+     */
+    static ceres::CostFunction *Create(const Eigen::Matrix4d &_Tcw, const double &_u0, const double &_v0,
+        const double &_fx, const double &_fy, const double &_cx, const double &_cy)
+    {
+        ceres::AutoDiffCostFunction<BAStructure_Factor, 2, 3> *cost_func = new ceres::AutoDiffCostFunction<BAStructure_Factor, 2, 3>(
+            new BAStructure_Factor(_Tcw, _u0, _v0, _fx, _fy, _cx, _cy)
+        );
+        return cost_func;
+    }
+
+    /**
+     * @brief Construct a new BAStructure_Factor object 
+     * input param blocks: cam_pose (6), map_worldpose (3), 
+     * optimization for Mappoint only
+     * @param Tcw_log se3 log of Current Camera Pose
+     * @param _u0 measurement x coordinate of the keypoint
+     * @param _v0 measurementyx coordinate of the keypoint
+     * @param _fx focal x length
+     * @param _fy focal y length
+     * @param _cx principle x length
+     * @param _cy principle y length
+     */
+    static ceres::CostFunction *Create(const double *Tcw_log, const double &_u0, const double &_v0,
+        const double &_fx, const double &_fy, const double &_cx, const double &_cy)
+    {
+        ceres::AutoDiffCostFunction<BAStructure_Factor, 2, 3> *cost_func = new ceres::AutoDiffCostFunction<BAStructure_Factor, 2, 3>(
+            new BAStructure_Factor(Tcw_log, _u0, _v0, _fx, _fy, _cx, _cy)
+        );
+        return cost_func;
+    }
+
+private:
+    Eigen::Matrix4d Tcw;
+    const double u0, v0;
+    const double fx, fy, cx, cy;
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+};
+
+
+struct CrossPt_Factor{
+public:
+    CrossPt_Factor(const Eigen::Vector3d &_QueryPoint): QueryPoint(_QueryPoint){}
+    template <typename T>
+    bool operator()(const T* Tcl_log, const T* cam_pose, const T* map_pose, T* error) const
+    {
+        T inv_se3_calib[6] = {-Tcl_log[0], -Tcl_log[1], -Tcl_log[2], -Tcl_log[3], -Tcl_log[4], -Tcl_log[5]};
+        MatrixN<3, T> _Rlc, _Rcw;
+        VectorN<3, T> _tlc, _tcw;
+        T _s = Tcl_log[6];
+        VectorN<3, T> _MapPoint(map_pose);
+        std::tie(_Rlc, _tlc) = SE3Exp<T>(inv_se3_calib);
+        std::tie(_Rcw, _tcw) = SE3Exp<T>(cam_pose);
+        _MapPoint = _Rcw * _MapPoint + _tcw;
+        VectorN<3, T> _MapPointLidar = _Rlc * (_MapPoint * _s) + _tlc;
+        VectorN<3, T> _QueryPoint = QueryPoint.cast<T>();
+        error[0] = _MapPointLidar[0] - _QueryPoint[0];
+        error[1] = _MapPointLidar[1] - _QueryPoint[1];
+        error[2] = _MapPointLidar[2] - _QueryPoint[2];
+        return true;
+    }
+    /**
+     * @brief Construct a Cross Modality Point-to-Point Error. Joint-optimization of camera pose, MapPoint pose, extrinsic parameters and scale
+     * 
+     * @param _QueryPoint Matched Lidar Point in Lidar Coord
+     * @return ceres::CostFunction* 
+     */
+    static ceres::CostFunction *Create(const Eigen::Vector3d &_QueryPoint){
+        ceres::AutoDiffCostFunction<CrossPt_Factor, 3, 7, 6, 3> *cost_func = new ceres::AutoDiffCostFunction<CrossPt_Factor, 3, 7, 6, 3>(
+            new CrossPt_Factor(_QueryPoint)
+        );
+        return cost_func;
+    }
+
+private:
+    const Eigen::Vector3d QueryPoint;  // Matched Lidar Point
+    
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+};
+
+struct CrossPL_Factor{
+public:
+    CrossPL_Factor(const Eigen::Vector3d &_QueryPoint, const Eigen::Vector3d &_normal):
+     QueryPoint(_QueryPoint), normal(_normal){}
+    template <typename T>
+    bool operator()(const T* Tcl_log, const T* cam_pose, const T* map_pose, T* error) const
+    {
+        T inv_se3_calib[6] = {-Tcl_log[0], -Tcl_log[1], -Tcl_log[2], -Tcl_log[3], -Tcl_log[4], -Tcl_log[5]};
+        MatrixN<3, T> _Rlc, _Rcw;
+        VectorN<3, T> _tlc, _tcw;
+        T _s = Tcl_log[6];
+        VectorN<3, T> _MapPoint(map_pose);
+        std::tie(_Rlc, _tlc) = SE3Exp<T>(inv_se3_calib);
+        std::tie(_Rcw, _tcw) = SE3Exp<T>(cam_pose);
+        _MapPoint = _Rcw * _MapPoint + _tcw;  // World Pose to Camera Pose
+        VectorN<3, T> _MapPointLidar = _Rlc * (_MapPoint * _s) + _tlc;  // Camera Pose to Lidar Pose
+        VectorN<3, T> _QueryPoint = QueryPoint.cast<T>();
+        VectorN<3, T> _normal = normal.cast<T>();
+        error[0] = (_QueryPoint - _MapPointLidar).dot(_normal);
+        return true;
+    }
+    static ceres::CostFunction *Create(const Eigen::Vector3d &_QueryPoint, const Eigen::Vector3d &_normal){
+        ceres::AutoDiffCostFunction<CrossPL_Factor, 1, 7, 6, 3> *cost_func = new ceres::AutoDiffCostFunction<CrossPL_Factor, 1, 7, 6, 3>(
+            new CrossPL_Factor(_QueryPoint, _normal)
+        );
+        return cost_func;
+    }
+
+private:
+    const Eigen::Vector3d QueryPoint;  // Matched Lidar Point
+    const Eigen::Vector3d normal; // normal of QueryPoint
+    
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };

@@ -1,6 +1,10 @@
 #pragma once
 #include <Eigen/Dense>
+#include <tuple>
+#include <boost/functional/hash.hpp>
+#include <unordered_map>
 #include "KDTreeVectorOfVectorsAdaptor.h"
+
 // C++ 17 or later does not need to manually indicate allocator anymore
 // typedef std::vector<Eigen::Vector2d, Eigen::aligned_allocator<Eigen::Vector2d>> VecVector2d;
 // typedef std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> VecVector3d;
@@ -14,6 +18,45 @@ typedef std::pair<IndexType, IndexType> CorrType;
 typedef std::vector<CorrType> CorrSet;
 typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector2d, double, 2, nanoflann::metric_L2_Simple, IndexType> KDTree2D;
 typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector3d, double, 3, nanoflann::metric_L2_Simple, IndexType> KDTree3D;
+typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector3d, double, 3, nanoflann::metric_SO3, IndexType> KDTreeSO3;
+
+namespace std
+{
+
+template<typename... T>
+struct hash<std::tuple<T...>>
+{
+    size_t operator()(tuple<T...> const& arg) const noexcept
+    {
+        return boost::hash_value(arg);
+    }
+};
+
+}
+
+VecVector3d SelectPoints(const VecVector3d &points, const VecIndex &indices)
+{
+    VecVector3d subpoints(indices.size());
+    for(std::size_t i = 0; i < indices.size(); ++i)
+        subpoints[i] = points[indices[i]];
+    return subpoints;
+}
+
+VecIndex UniquePoints(const VecVector3d &points, const VecIndex &indices)
+{
+    std::unordered_map<std::tuple<double, double, double>, IndexType, std::hash<std::tuple<double, double, double>>> local_pt_map;
+    local_pt_map.reserve(indices.size());
+    for(auto const &idx:indices)
+    {
+        const auto pt = points[idx];
+        local_pt_map[{pt[0], pt[1], pt[2]}] = idx;
+    }
+    VecIndex unique_indices;
+    unique_indices.reserve(local_pt_map.size());
+    for(auto const &[key, value]:local_pt_map)
+        unique_indices.push_back(value);
+    return unique_indices;
+}
 
 void RotatePointCloudInplace(VecVector3d &pointCloud, const Eigen::Matrix3d &rotation){
     for(auto &point:pointCloud)
@@ -48,7 +91,39 @@ void TransformPointCloud(const VecVector3d &srcPointCloud, VecVector3d &tgtPoint
         tgtPointCloud[i] = transformation.topLeftCorner(3, 3) * srcPointCloud[i] + transformation.topRightCorner(3, 1);
 }
 
-template <typename IdxType>
+/**
+ * @brief Compute Three angles and the area of a Triangle
+ * 
+ * @param a edge opposite angle A
+ * @param b edge opposite angle B
+ * @param c edge opposite angle C
+ * @return std::tuple<double, double, double, double> respective opposite angles of a,b,c, Area
+ */
+std::tuple<double, double, double, double> ComputeTriangleInfo(const Eigen::Vector3d &a, const Eigen::Vector3d &b, const Eigen::Vector3d &c)
+{
+    const Eigen::Vector3d ab = a - b;
+    const Eigen::Vector3d ac = a - c;
+    const Eigen::Vector3d bc = b - c;
+    double norm_ab = ab.norm();
+    double norm_ac = ac.norm();
+    double norm_bc = bc.norm();
+    double cosA = ab.dot(ac) / norm_ab / norm_ac;  // ab \cdot ac / (|ab| \cdot |ac|)
+    double cosB = (-ab).dot(bc) / norm_ab / norm_bc; // ba \cdot bc / (|ba| \cdot |bc|)
+    double cosC = (ac).dot(bc) / norm_ac / norm_bc; // ca \cdot cb / (|ca| \cdot |cb|)
+    double area = 0.5 * std::sqrt(1 - cosA * cosA) * norm_ab * norm_ac;
+    return {std::acos(cosA), std::acos(cosB), std::acos(cosC), area};
+}
+
+
+/**
+ * @brief Compute Convariance of the points indexed by indices (zero-mean included)
+ * 
+ * @tparam IdxType 
+ * @param points the whole point cloud
+ * @param indices query points to be computed covariance
+ * @return Eigen::Matrix3d 
+ */
+template <typename IdxType = IndexType>
 Eigen::Matrix3d ComputeCovariance(const VecVector3d &points,
                                   const std::vector<IdxType> &indices) {
     if (indices.empty()) {
@@ -81,6 +156,40 @@ Eigen::Matrix3d ComputeCovariance(const VecVector3d &points,
     covariance(2, 1) = covariance(1, 2);
     return covariance;
 }
+
+
+template <typename IdxType = IndexType>
+Eigen::Matrix3d ComputeCovariance(const VecVector3d &points) {
+    if (points.empty()) {
+        return Eigen::Matrix3d::Identity();
+    }
+    Eigen::Matrix3d covariance;
+    Eigen::Matrix<double, 9, 1> cumulants;
+    cumulants.setZero();
+    for (const auto &point : points) {
+        cumulants(0) += point(0);
+        cumulants(1) += point(1);
+        cumulants(2) += point(2);
+        cumulants(3) += point(0) * point(0);
+        cumulants(4) += point(0) * point(1);
+        cumulants(5) += point(0) * point(2);
+        cumulants(6) += point(1) * point(1);
+        cumulants(7) += point(1) * point(2);
+        cumulants(8) += point(2) * point(2);
+    }
+    cumulants /= (double)points.size();
+    covariance(0, 0) = cumulants(3) - cumulants(0) * cumulants(0);
+    covariance(1, 1) = cumulants(6) - cumulants(1) * cumulants(1);
+    covariance(2, 2) = cumulants(8) - cumulants(2) * cumulants(2);
+    covariance(0, 1) = cumulants(4) - cumulants(0) * cumulants(1);
+    covariance(1, 0) = covariance(0, 1);
+    covariance(0, 2) = cumulants(5) - cumulants(0) * cumulants(2);
+    covariance(2, 0) = covariance(0, 2);
+    covariance(1, 2) = cumulants(7) - cumulants(1) * cumulants(2);
+    covariance(2, 1) = covariance(1, 2);
+    return covariance;
+}
+
 // Copied from Open3d: open3d/geometry/EstimateNormals.cpp
 Eigen::Vector3d ComputeEigenvector0(const Eigen::Matrix3d &A, double eval0) {
     Eigen::Vector3d row0(A(0, 0) - eval0, A(0, 1), A(0, 2));
@@ -393,10 +502,140 @@ std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, 
         std::sort(eigenvalues.begin(), eigenvalues.end());
         if(!(eigenvalues[2] > 3 * eigenvalues[1] && eigenvalues[2] > 3 * eigenvalues[0] && eigenvalues[2] > 1e-2))
             continue; // Valid Plane Verification
-        normals.push_back(normal); // self-to-self distance is minimum
+        normals.push_back(normal.normalized()); // self-to-self distance is minimum
         valid_indices.push_back(i);
     }
     return {normals, valid_indices};
+}
+
+
+/**
+ * @brief Compute normal of each point in points indexed by indices
+ * 
+ * @param points the whole point cloud
+ * @param kdtree KDTree built with point cloud (Lidar Coord)
+ * @param querys indices of selected points
+ * @param radius radius to compute point covariance
+ * @param max_pts maximum points of the local manifold
+ * @param min_pts minimum points the local manifold should at least contain
+ * @return std::tuple<VecVector3d, std::vector<VecIndex>, VecIndex> valid normals, vector of valid neighbor point indices, valid indices of querys
+ */
+std::tuple<VecVector3d, std::vector<VecIndex>, VecIndex> ComputeLocalNormalAndNeighbor(const VecVector3d &points, const KDTree3D* kdtree, const VecIndex &querys,
+    const double &radius, const int &max_pts, const int &min_pts=3)
+{
+    VecVector3d normals;
+    VecIndex valid_indices;
+    std::vector<VecIndex> neigh_indices;
+    normals.reserve(querys.size());
+    valid_indices.reserve(querys.size());
+    neigh_indices.reserve(querys.size());
+    for (std::size_t i = 0; i < querys.size(); ++i){
+        const IndexType idx = querys[i];
+        VecIndex indices(max_pts);
+        std::vector<double> sq_dist(max_pts);
+        nanoflann::KNNResultSet<double, IndexType> resultSet(max_pts);
+        resultSet.init(indices.data(), sq_dist.data());
+        kdtree->index->findNeighbors(resultSet, points[idx].data(), nanoflann::SearchParameters());
+        std::size_t k = resultSet.size();
+        k = std::distance(sq_dist.begin(),
+                      std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
+                                       radius * radius)); // iterator difference between start and last valid index
+        indices.resize(k);
+        if(k < min_pts)
+            continue;
+        neigh_indices.push_back(indices);
+        Eigen::Matrix3d covariance = ComputeCovariance(points, indices);
+        Eigen::Vector3d normal, eval;
+        std::tie(normal, eval) = FastEigen3x3_EV(covariance);
+        std::vector<double> eigenvalues{eval[0], eval[1], eval[2]};
+        std::sort(eigenvalues.begin(), eigenvalues.end());
+        if(!(eigenvalues[2] > 3 * eigenvalues[1] && eigenvalues[2] > 3 * eigenvalues[0] && eigenvalues[2] > 1e-2))
+            continue; // Valid Plane Verification
+        normals.push_back(normal.normalized()); // self-to-self distance is minimum
+        valid_indices.push_back(i);
+    }
+    return {normals,neigh_indices, valid_indices};
+}
+
+/**
+ * @brief Compute the normal of the single "query" point in "points"
+ * 
+ * @param points the whole point cloud
+ * @param kdtree KDTree built with point cloud (Lidar Coord)
+ * @param query index of query point
+ * @param radius maximum radius to compute point covariance
+ * @param max_pts maximum points of the local manifold
+ * @param min_pts minimum points the local manifold should at least contain
+ * @param pvalue the maximum eigenvalue must > "pvalue" * other_eigenvalue
+ * @param min_eval the maximum eigenvalue must > min_eval
+ * @return std::tuple<Eigen::Vector3d, bool> normal, isvalid
+ */
+std::tuple<Eigen::Vector3d, bool> ComputeLocalNormalSingle(const VecVector3d &points, const VecIndex &neigh_indices, const IndexType &query,
+    const double &radius, const int &max_pts, const int &min_pts=3, const double pvalue=3.0, const double min_eval=0.01)
+{
+    Eigen::Matrix3d covariance = ComputeCovariance(points, neigh_indices);
+    Eigen::Vector3d normal, eval;
+    std::tie(normal, eval) = FastEigen3x3_EV(covariance);
+    std::vector<double> eigenvalues{eval[0], eval[1], eval[2]};
+    std::sort(eigenvalues.begin(), eigenvalues.end());
+    normal.normalize();
+    if(!(eigenvalues[2] > pvalue * eigenvalues[1] && eigenvalues[2] > pvalue * eigenvalues[0] && eigenvalues[2] > min_eval))
+        return {normal, false}; // Valid Plane Verification
+    return {normal, true};
+}
+
+/**
+ * @brief Compute the normal of the single "query" point in "points"
+ * 
+ * @param points the whole point cloud
+ * @param kdtree KDTree built with point cloud (Lidar Coord)
+ * @param query index of query point
+ * @param radius maximum radius to compute point covariance
+ * @param max_pts maximum points of the local manifold
+ * @param min_pts minimum points the local manifold should at least contain
+ * @param pvalue the maximum eigenvalue must > "pvalue" * other_eigenvalue
+ * @param min_eval the maximum eigenvalue must > min_eval
+ * @return std::tuple<Eigen::Vector3d, bool> normal, isvalid
+ */
+std::tuple<Eigen::Vector3d, bool> ComputeLocalNormalSingle(const VecVector3d &points, const KDTree3D* kdtree, const IndexType &query,
+    const double &radius, const int &max_pts, const int &min_pts=3, const double pvalue=3.0, const double min_eval=0.01)
+{
+    VecIndex indices(max_pts);
+    std::vector<double> sq_dist(max_pts);
+    nanoflann::KNNResultSet<double, IndexType> resultSet(max_pts);
+    resultSet.init(indices.data(), sq_dist.data());
+    kdtree->index->findNeighbors(resultSet, points[query].data(), nanoflann::SearchParameters());
+    std::size_t k = resultSet.size();
+    k = std::distance(sq_dist.begin(),
+                    std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
+                                    radius * radius)); // iterator difference between start and last valid index
+    indices.resize(k);
+    sq_dist.resize(k);
+    if(k < min_pts)
+        return {(Eigen::Vector3d() << 0,0,1).finished(), false};
+    Eigen::Matrix3d covariance = ComputeCovariance(points, indices);
+    Eigen::Vector3d normal, eval;
+    std::tie(normal, eval) = FastEigen3x3_EV(covariance);
+    normal.normalize();
+    std::vector<double> eigenvalues{eval[0], eval[1], eval[2]};
+    std::sort(eigenvalues.begin(), eigenvalues.end());
+    if(!(eigenvalues[2] > pvalue * eigenvalues[1] && eigenvalues[2] > pvalue * eigenvalues[0] && eigenvalues[2] > min_eval))
+        return {normal, false}; // Valid Plane Verification
+    return {normal, true};
+}
+
+
+std::tuple<Eigen::Vector3d, bool> ComputeLocalNormalSingle(const VecVector3d &local_pts, const double pvalue=3.0, const double min_eval=0.01)
+{
+    Eigen::Matrix3d covariance = ComputeCovariance(local_pts);
+    Eigen::Vector3d normal, eval;
+    std::tie(normal, eval) = FastEigen3x3_EV(covariance);
+    normal.normalize();
+    std::vector<double> eigenvalues{eval[0], eval[1], eval[2]};
+    std::sort(eigenvalues.begin(), eigenvalues.end());
+    if(!(eigenvalues[2] > pvalue * eigenvalues[1] && eigenvalues[2] > pvalue * eigenvalues[0] && eigenvalues[2] > min_eval))
+        return {normal, false}; // Valid Plane Verification
+    return {normal, true};
 }
 
 /**
@@ -425,17 +664,64 @@ std::tuple<std::vector<VecIndex>, VecIndex> ComputeLocalNeighbor(const VecVector
         resultSet.init(indices.data(), sq_dist.data());
         kdtree->index->findNeighbors(resultSet, points[query_idx].data(), nanoflann::SearchParameters());
         int k = resultSet.size();
-        if(k < 3)
-            continue;
         k = std::distance(sq_dist.begin(),
                       std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
                                        radius * radius)); // iterator difference between start and last valid index
         indices.resize(k);
-        sq_dist.resize(k);
-        if(k < 3)
+        VecIndex final_indices = UniquePoints(points, indices);
+        if(final_indices.size() < min_pts)
             continue;
-        neighbors.push_back(indices); // self-to-self distance is minimum
+        neighbors.push_back(final_indices); // self-to-self distance is minimum
         valid_indices.push_back(i);
     }
     return {neighbors, valid_indices};
+}
+
+
+
+/**
+ * @brief Compute neighbors of the single "query" point in "points"
+ * 
+ * @param points the whole point cloud
+ * @param kdtree KDTree built with point cloud (Lidar Coord)
+ * @param query_point query point
+ * @param radius radius to compute point covariance
+ * @param max_pts maximum points of the local manifold
+ * @param min_pts minimum points the local manifold should at least contain
+ * @return std::tuple<VecIndex, bool> Vector of neighbor indices, isvalid
+ */
+std::tuple<VecIndex, bool> ComputeLocalNeighborSingle(const VecVector3d &points, const KDTree3D* kdtree, const Eigen::Vector3d &query_point,
+    const double &radius, const int &max_pts, const int &min_pts=3)
+{
+    VecIndex indices(max_pts);
+    std::vector<double> sq_dist(max_pts);
+    nanoflann::KNNResultSet<double, IndexType> resultSet(max_pts);
+    resultSet.init(indices.data(), sq_dist.data());
+    kdtree->index->findNeighbors(resultSet, query_point.data(), nanoflann::SearchParameters());
+    int k = resultSet.size();
+    k = std::distance(sq_dist.begin(),
+                    std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
+                                    radius * radius)); // iterator difference between start and last valid index
+    indices.resize(k);
+    sq_dist.resize(k);
+    if(k < min_pts)
+        return {indices, false};
+    return {indices, true};
+}
+
+/**
+ * @brief Compute neighbors of the single "query" point in "points"
+ * 
+ * @param points the whole point cloud
+ * @param kdtree KDTree built with point cloud (Lidar Coord)
+ * @param query index of the query point
+ * @param radius radius to compute point covariance
+ * @param max_pts maximum points of the local manifold
+ * @param min_pts minimum points the local manifold should at least contain
+ * @return std::tuple<VecIndex, bool> Vector of neighbor indices, isvalid
+ */
+std::tuple<VecIndex, bool> ComputeLocalNeighborSingle(const VecVector3d &points, const KDTree3D* kdtree, const IndexType &query,
+    const double &radius, const int &max_pts, const int &min_pts=3)
+{
+    return ComputeLocalNeighborSingle(points, kdtree, points[query], radius, max_pts, min_pts);
 }
