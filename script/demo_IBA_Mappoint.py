@@ -43,14 +43,14 @@ def options():
     io_parser.add_argument("--KeyFrameDir",type=str,default="../KITTI-00/KeyFrames")
     io_parser.add_argument("--FrameIdFile",type=str,default="../KITTI-00/FrameId.yml")
     io_parser.add_argument("--MapFile",type=str,default="../KITTI-00/Map.yml")
-    io_parser.add_argument("--MapScale",type=float,default=17)
+    io_parser.add_argument("--sim3_file",type=str,default="../KITTI-00/calib_res/iba_local_00.txt")
     io_parser.add_argument("--KeyFrameIdKey",type=str,default="mnId")
     io_parser.add_argument("--FrameIdKey",type=str,default="mnFrameId")
     io_parser.add_argument("--KeyPointsKey",type=str,default="mvKeysUn")
     io_parser.add_argument("--MapPointKey",type=str,default="mvpMapPointsId")
     io_parser.add_argument("--CorrKey",type=str,default="mvpCorrKeyPointsId")
-    io_parser.add_argument("--index_i",type=int,default=2)
-    io_parser.add_argument("--index_j",type=int,default=3)
+    io_parser.add_argument("--index_i",type=int,default=75)
+    io_parser.add_argument("--index_j",type=int,default=76)
     io_parser.add_argument("--debug_log",type=str,default="")
     io_parser.add_argument("--Twc_file",type=str,default="../Twc.txt")
     io_parser.add_argument("--Twl_file",type=str,default="../Twl.txt")
@@ -184,7 +184,11 @@ if __name__ == "__main__":
     args = options()
     dataStruct = pykitti.odometry(args.base_dir, args.seq_id)
     calibStruct = dataStruct.calib
-    extran = calibStruct.T_cam0_velo  # [4,4]
+    sim3_data = np.loadtxt(args.sim3_file)
+    scale = sim3_data[-1]
+    extran = np.eye(4)
+    extran[:3,:] = sim3_data[:12].reshape(3,4)
+    # extran = calibStruct.T_cam0_velo  # [4,4]
     print("GT TCL:\n{}".format(extran))
     print("GT TCL Rvec:{}\ntvec:{}".format(*toVec(extran)))
     KeyFramesFiles = list(sorted(os.listdir(args.KeyFrameDir)))
@@ -213,9 +217,9 @@ if __name__ == "__main__":
     map_fs = cv2.FileStorage(args.MapFile, cv2.FILE_STORAGE_READ)
     mappoints_fs = map_fs.getNode("mspMapPoints")  # don't merge this line with the last line !!!
     src_matched_pts_idx, tgt_matched_pts_idx, mappoints = getMatchedIdviaMap(mappoints_fs, src_mappt_indices, tgt_mappt_indices, args.index_i, args.index_j)
-    mappoints = nptran(mappoints, src_pose) * args.MapScale
+    mappoints = nptran(mappoints, src_pose) * scale
     camera_motion:np.ndarray = tgt_pose @ inv_pose(src_pose)  # Tc2w * Twc1
-    camera_motion[:3,3] *= args.MapScale
+    camera_motion[:3,3] *= scale
     src_matched_pts = src_keypts[src_matched_pts_idx]
     tgt_matched_pts = tgt_keypts[tgt_matched_pts_idx]
     print("Matched Keypoints:{}".format(len(src_matched_pts)))
@@ -233,17 +237,17 @@ if __name__ == "__main__":
     dist, src_pcd_3d_query = src_3d_kdtree.query(mappoints,k=1,p=2,workers=-1)
     dist = np.sqrt(dist)
     print("Mean 3d-3d Dist:{}".format(dist.mean()))
-    # sp_pts3d = src_pcd_camcoord[src_pcd_3d_query]
-    # src_pcd_o3d = o3d.geometry.PointCloud()
-    # src_pcd_o3d.points = o3d.utility.Vector3dVector(src_pcd_camcoord)
-    # src_pcd_o3d.paint_uniform_color([0,0,0])
-    # mappoints_o3d = o3d.geometry.PointCloud()
-    # mappoints_o3d.points = o3d.utility.Vector3dVector(mappoints)
-    # mappoints_o3d.paint_uniform_color([1.0,0,0])
-    # sp_pts3d_o3d = o3d.geometry.PointCloud()
-    # sp_pts3d_o3d.points = o3d.utility.Vector3dVector(sp_pts3d)
-    # sp_pts3d_o3d.paint_uniform_color([0,1,1])
-    # o3d.visualization.draw_geometries([src_pcd_o3d, mappoints_o3d, sp_pts3d_o3d])
+    sp_pts3d = src_pcd_camcoord[src_pcd_3d_query]
+    src_pcd_o3d = o3d.geometry.PointCloud()
+    src_pcd_o3d.points = o3d.utility.Vector3dVector(src_pcd_camcoord)
+    src_pcd_o3d.paint_uniform_color([0,0,0])
+    mappoints_o3d = o3d.geometry.PointCloud()
+    mappoints_o3d.points = o3d.utility.Vector3dVector(mappoints)
+    mappoints_o3d.paint_uniform_color([1.0,0,0])
+    sp_pts3d_o3d = o3d.geometry.PointCloud()
+    sp_pts3d_o3d.points = o3d.utility.Vector3dVector(sp_pts3d)
+    sp_pts3d_o3d.paint_uniform_color([0,1,1])
+    o3d.visualization.draw_geometries([src_pcd_o3d, mappoints_o3d, sp_pts3d_o3d])
     # src_proj_pcd, _ = npproj(sp_pts3d, np.eye(4), intran, src_img.shape)
     # tgt_pcd_arr = nptran(sp_pts3d, camera_motion)
     # tgt_proj_pcd, tgt_proj_rev = npproj(tgt_pcd_arr, np.eye(4), intran, tgt_img.shape)
