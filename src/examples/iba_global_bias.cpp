@@ -125,7 +125,8 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
  * @return std::tuple<bool, double> 
  */
 std::tuple<bool, double> ComputeAlignmentDist(const KDTree3D* kdtree, const VecVector3d &PointCloud, const Eigen::Vector3d &query_pt,
-    const int &norm_max_pts, const double &norm_radius, const double &norm_reg_threshold, const double &min_diff_dist, const bool use_plane=true)
+    const int &norm_max_pts, const int &norm_min_pts, const double &norm_radius,
+    const double &norm_reg_threshold, const double &min_diff_dist, const bool use_plane=true)
 {
     // find nearest point of Laser Scan to query_pt
     VecIndex nn_idx(1);
@@ -141,31 +142,29 @@ std::tuple<bool, double> ComputeAlignmentDist(const KDTree3D* kdtree, const VecV
     std::vector<double> sq_dist(norm_max_pts);
     nanoflann::KNNResultSet<double, IndexType> resultSet(norm_max_pts);
     resultSet.init(indices.data(), sq_dist.data());
-    kdtree->index->findNeighbors(resultSet, nn_pt.data(), nanoflann::SearchParameters());
+    kdtree->index->findNeighbors(resultSet, nn_pt.data(), nanoflann::SearchParameters());  // use query_pt to find a plane
     std::size_t k = resultSet.size();
     k = std::distance(sq_dist.begin(),
                 std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
                                 norm_radius * norm_radius)); // iterator difference between start and last valid index
     indices.resize(k);
     sq_dist.resize(k);
-    if(k < 3)
+    if(sq_dist[k-1] < min_diff_dist * min_diff_dist)
+        return {false, pt2pt_dist};
+    if(k < norm_min_pts)
         return {false, pt2pt_dist};
     Eigen::Matrix3d covariance = ComputeCovariance(PointCloud, indices);
-    Eigen::Vector3d normal, eval;
+    Eigen::Vector3d normal;
     std::tie(normal, std::ignore) = FastEigen3x3_EV(covariance);
     normal.normalize();
     double reg_err = 0;
     for(auto const &idx:indices)
         reg_err += std::abs((PointCloud[idx] - nn_pt).dot(normal));
-    if(reg_err / (indices.size() - 1) > norm_reg_threshold)   // not include indices[0]
+    if(reg_err / (k - 1) > norm_reg_threshold)   // not include indices[0]
         return {false, pt2pt_dist};
     else
     {
         double max_dist = 0;
-        for(auto const &idx:indices)
-            max_dist = std::max((PointCloud[idx] - nn_pt).norm(), max_dist);
-        if(max_dist < min_diff_dist) // not s.t. difference condition
-            return {false, pt2pt_dist};
         double pt2pl_dist = std::abs((nn_pt - query_pt).dot(normal));
         return {true, pt2pl_dist};
     }

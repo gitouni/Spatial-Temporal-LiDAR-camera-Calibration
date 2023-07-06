@@ -210,7 +210,7 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
             std::vector<Eigen::Matrix3d> R_list;
             std::vector<Eigen::Vector3d> t_list;
             for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
-                auto pKFConv = ConvisKeyFrames[pKFConvi];
+                auto pKFConv = pConvisKFs[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)
                     continue;
