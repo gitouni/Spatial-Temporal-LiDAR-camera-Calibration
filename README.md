@@ -1,5 +1,18 @@
 # Spatial-Temporal-LiDAR-camera-Calibration
 Spatial-Temporal-LiDAR-camera-Calibration
+# Performance on KITTI Odometry
+* ```rotation units```: degree
+* ```translation units```: cm
+
+
+|Sequence| X| Y | Z | roll | pitch | yaw |
+|---|---|---|---|---|---|---|
+|00|3.01|1.29|0.73|-0.106|-0.165|-0.072|
+|02|-2.80|-1.63|1.18|-0.01|-0.246|-0.159|
+|03|-2.94|3.79|0.00|-0.076|-0.117|-0.162|
+|04|1.22|0.89|2.83|0.011|-0.088|0.074|
+|05|-0.94|-0.52|1.27|0.190|-0.128|-0.181|
+
 # Tested Environment
 |C++|CMake|g++|python|System|
 |---|---|---|---|---|
