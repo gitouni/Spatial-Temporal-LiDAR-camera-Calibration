@@ -48,6 +48,7 @@ public:
     int PointCloudskip = 1;
     bool PointCloudOnlyPositiveX = false;
     int max_bbeval = 200;
+    double valid_rate = 0.5;
     bool verborse = true;
     bool use_plane = true;
 };
@@ -90,7 +91,7 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
         std::vector<double> sq_dist(num_closest, std::numeric_limits<double>::max());
         nanoflann::KNNResultSet<double, IndexType> resultSet(num_closest);
         resultSet.init(indices.data(), sq_dist.data());
-        kdtree->index->findNeighbors(resultSet, vKeyUnEigen[i].data(), nanoflann::SearchParameters(0.0F, true));
+        kdtree->index->findNeighbors(resultSet, vKeyUnEigen[i].data(), nanoflann::SearchParameters());
         if(resultSet.size() > 0 && sq_dist[0] <= max_corr_dist * max_corr_dist)
             corrset.push_back(std::make_pair(i, ProjectIndex[indices[0]]));
     }
@@ -328,14 +329,19 @@ std::tuple<double, double, double, int, int> BAError(
             }
         }
     }
-    assert(valid_cnt_3d_2d > 0 && valid_cnt_3d_3d > 0);
-    corr_3d_2d_err /= valid_cnt_3d_2d;
-    corr_3d_3d_err /= valid_cnt_3d_3d;
+    if(valid_cnt_3d_2d==0 && iba_params.err_weight[0] > 1e-10)
+        corr_3d_2d_err = std::numeric_limits<double>::max();
+    else
+        corr_3d_2d_err /= valid_cnt_3d_2d;
+    if(valid_cnt_3d_3d==0 && iba_params.err_weight[1] > 1e-10)
+        corr_3d_3d_err = std::numeric_limits<double>::max();
+    else
+        corr_3d_3d_err /= valid_cnt_3d_3d;
     Cval /= Ccnt;
     // auto logger = LogEdges(corr_3d_3d_errlist);
     // print_map("corr3d_3d:",logger);
     if(verborse)
-        std::printf("plane: %d, point: %d\n", valid_pl_3d_3d, valid_pt_3d_3d);
+        std::printf("plane: %d, point: %d 3d-2d: %d\n", valid_pl_3d_3d, valid_pt_3d_3d, valid_cnt_3d_2d);
     return {corr_3d_2d_err, corr_3d_3d_err, Cval, valid_cnt_3d_2d, cnt_3d_2d};
 }
 
@@ -381,9 +387,11 @@ public:
         std::tie(f1val, f2val, Cval, valid_edge_cnt, edge_cnt) = BAError(xvec, *PointClouds, kdtree_list, *PointCloudPoses, *KFIdMap, *KeyFrames, *iba_params);
         NOMAD::Double f = f1val * iba_params->err_weight[0] + f2val * iba_params->err_weight[1];
         NOMAD::Double C1 = Cval - iba_params->he_threshold, C2 = -Cval - iba_params->he_threshold;  // |Cval| <= he_threshold
+        NOMAD::Double C3 = iba_params->valid_rate - static_cast<double>(valid_edge_cnt) / (edge_cnt+1);
         std::string bbo = f.tostring();
         bbo += " " + C1.tostring();
         bbo += " " + C2.tostring();
+        bbo += " " + C3.tostring();
         x.setBBO(bbo);
         countEval = true;
         return true;
@@ -456,9 +464,11 @@ int main(int argc, char** argv){
     iba_params.PointCloudskip = io_config["PointCloudskip"].as<int>();
     iba_params.PointCloudOnlyPositiveX = io_config["PointCloudOnlyPositiveX"].as<bool>();
     iba_params.max_bbeval = runtime_config["max_bbeval"].as<int>();
+    iba_params.valid_rate = runtime_config["valid_rate"].as<double>();
     iba_params.verborse = runtime_config["verborse"].as<bool>();
     iba_params.use_plane = runtime_config["use_plane"].as<bool>();
     bool use_cache = runtime_config["use_cache"].as<bool>();
+    bool use_vns = runtime_config["use_vns"].as<bool>();
     int seed = runtime_config["seed"].as<int>();
     const std::string NomadCacheFile = runtime_config["cacheFile"].as<std::string>();
     const double min_mesh = runtime_config["min_mesh"].as<double>();
@@ -553,6 +563,7 @@ int main(int argc, char** argv){
     bbOutputTypes.push_back(NOMAD::BBOutputType::OBJ);
     bbOutputTypes.push_back(NOMAD::BBOutputType::PB); // Relaxible Constraint |he_err| < delta
     bbOutputTypes.push_back(NOMAD::BBOutputType::PB); // Relaxible Constraint
+    bbOutputTypes.push_back(NOMAD::BBOutputType::PB); // Corr Valid Rate > threshold
     nomad_params->set_BB_OUTPUT_TYPE(bbOutputTypes);
     NOMAD::ArrayOfDouble nomad_lb(lb), nomad_ub(ub);
     nomad_params->set_LOWER_BOUND(nomad_lb);
@@ -566,7 +577,7 @@ int main(int argc, char** argv){
     NOMAD::ArrayOfDouble nomad_mesh_minsize(min_mesh_size), nomad_frame_init(init_frame_size);
     nomad_params->set_INITIAL_POLL_SIZE(nomad_frame_init);
     nomad_params->set_MIN_MESH_SIZE(nomad_mesh_minsize);
-    nomad_params->setAttributeValue("VNS_MADS_SEARCH",true);
+    nomad_params->setAttributeValue("VNS_MADS_SEARCH",use_vns);
     nomad_params->setAttributeValue("DIRECTION_TYPE",NOMAD::DirectionType::ORTHO_2N);
     nomad_params->checkAndComply();
     auto ev = std::make_unique<BALoss>(nomad_params->getEvalParams(), nomad_type,

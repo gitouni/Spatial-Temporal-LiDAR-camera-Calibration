@@ -14,17 +14,6 @@
 #include <thread>
 #include <omp.h>
 
-inline bool allClose(const std::vector<double> &A, const std::vector<double> &B, const double &atol)
-{
-    assert(A.size() == B.size());
-    for(int i = 0; i < A.size(); ++i)
-    {
-        if(abs(A[i] - B[i]) > atol)
-            return false;
-    }
-    return true;
-}
-
 /**
  * @brief Use the Reprojected Pixels of MapPoints as KeyPoint Position,
  *  find best 2d correspondence between reprojected pointcloud and keypoints point-by-point

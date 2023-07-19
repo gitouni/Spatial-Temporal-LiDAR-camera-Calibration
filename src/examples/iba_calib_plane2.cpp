@@ -168,7 +168,7 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             if(u1_list.size() == 0)
                 continue; // Should Not Run into
             ceres::LossFunction *loss_function = new ceres::HuberLoss(iba_params.robust_kernel_delta);
-            ceres::CostFunction *cost_function = IBA_PlaneFactor::Create(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0,
+            ceres::CostFunction *cost_function = IBA_PlaneFactor::Create(H, W, pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0,
                 u1_list, v1_list, R_list, t_list, p0, n0);
             #pragma omp critical
             {
