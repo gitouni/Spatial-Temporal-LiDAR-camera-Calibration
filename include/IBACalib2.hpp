@@ -5,6 +5,18 @@
 #include "GPR.hpp"
 #include "g2o_tools.h"
 
+
+inline bool allClose(const std::vector<double> &A, const std::vector<double> &B, const double &atol)
+{
+    assert(A.size() == B.size());
+    for(int i = 0; i < A.size(); ++i)
+    {
+        if(abs(A[i] - B[i]) > atol)
+            return false;
+    }
+    return true;
+}
+
 class IBAPlaneParams{
 public:
     IBAPlaneParams(){};
@@ -100,16 +112,18 @@ public:
     double corr_3d_3d_threshold = 5.;
     double he_threshold = 0.05;
     int num_min_corr = 30;
+    int num_best_convis = 3;
+    int min_covis_weight = 150;
     int kdtree2d_max_leaf_size = 10;
     int kdtree3d_max_leaf_size = 30;
-    double norm_radius = 0.6;
-    int norm_max_pts = 30;
-    int norm_min_pts = 5;
+    double neigh_radius = 0.6;
+    int neigh_max_pts = 30;
+    int neigh_min_pts = 5;
     double min_diff_dist = 0.2;
     double norm_reg_threshold = 0.001;
     double pvalue = 3.0;
-    double min_eval = 0.1;
-    double robust_kernel_delta = 5.0;
+    double min_eval = 0.01;
+    double robust_kernel_delta = 2.98;
     double robust_kernel_3ddelta = 1.0;
     double init_sigma = 10.;
     double init_l = 10.;
@@ -119,16 +133,17 @@ public:
     bool PointCloudOnlyPositiveX = false;
     bool optimize_gpr = true;
     bool verborse = true;
+    std::vector<double> err_weight = {1.0, 1.0};
 };
 
 
 struct IBA_PlaneFactor{
 public:
-    IBA_PlaneFactor(const double &_fx, const double &_fy, const double &_cx, const double &_cy,
+    IBA_PlaneFactor(const int &_H, const int &_W, const double &_fx, const double &_fy, const double &_cx, const double &_cy,
      const double &_u0, const double &_v0, const std::vector<double> &_u1_list, const std::vector<double> &_v1_list,
      const std::vector<Eigen::Matrix3d> &_R_list, const std::vector<Eigen::Vector3d> &_t_list,
      const Eigen::Vector3d &_p0, const Eigen::Vector3d &_n0):
-     fx(_fx), fy(_fy), cx(_cx), cy(_cy),
+     H(_H), W(_W), fx(_fx), fy(_fy), cx(_cx), cy(_cy),
      u0(_u0), v0(_v0), u1_list(_u1_list), v1_list(_v1_list),
      p0(_p0), n0(_n0), NConv(_u1_list.size()), R_list(_R_list), t_list(_t_list)
      {};
@@ -184,18 +199,19 @@ public:
      * @param _p0 Manifold point (on the plane, LIDAR Coord System)
      * @param _n0 normal of _p0 (in the LIDAR Coord System)
      */
-    static ceres::CostFunction *Create(const double &_fx, const double &_fy, const double &_cx, const double &_cy,
+    static ceres::CostFunction *Create(const int &_H, const int &_W, const double &_fx, const double &_fy, const double &_cx, const double &_cy,
         const double &_u0, const double &_v0, const std::vector<double> &_u1_list, const std::vector<double> &_v1_list,
         const std::vector<Eigen::Matrix3d> &_R_list, const std::vector<Eigen::Vector3d> &_t_list,
         const Eigen::Vector3d &_p0, const Eigen::Vector3d &_n0)
     {
         ceres::DynamicAutoDiffCostFunction<IBA_PlaneFactor, 6> *cost_func = new ceres::DynamicAutoDiffCostFunction<IBA_PlaneFactor, 6>(
-            new IBA_PlaneFactor(_fx, _fy, _cx, _cy, _u0, _v0, _u1_list, _v1_list, _R_list, _t_list ,_p0, _n0));
+            new IBA_PlaneFactor(_H, _W, _fx, _fy, _cx, _cy, _u0, _v0, _u1_list, _v1_list, _R_list, _t_list ,_p0, _n0));
         cost_func->SetNumResiduals(2*_u1_list.size());
         cost_func->AddParameterBlock(7);  // only one block (extrinsic Sim3 log)
         return cost_func;
     }
 private:
+    const int H, W;
     const double fx, fy, cx, cy, u0, v0;
     const std::vector<double> v1_list, u1_list;
     const Eigen::Vector3d p0;
@@ -416,9 +432,7 @@ public:
      const double &_fx, const double &_fy, const double &_cx, const double &_cy,
      const double &_u0, const double &_v0, const std::vector<double> &_u1_list, const std::vector<double> &_v1_list, 
      const std::vector<Eigen::Matrix3d> &_R_list, const std::vector<Eigen::Vector3d> &_t_list,
-     const bool _optimize=false, const bool _verborse=false,
-     const Eigen::Vector2d &_lb=(Eigen::Vector2d() << 1e-3, 1e-3).finished(),
-     const Eigen::Vector2d &_ub=(Eigen::Vector2d() << 1e3, 1e3).finished()):
+     const bool _optimize=false, const bool _verborse=false):
      sigma(_sigma), l(_l), sigma_noise(_sigma_noise), neigh_pts(_neigh_pts),
      H(_H), W(_W), fx(_fx), fy(_fy), cx(_cx), cy(_cy),
      u0(_u0), v0(_v0), u1_list(_u1_list), v1_list(_v1_list),
@@ -428,8 +442,6 @@ public:
         gpr_params.sigma = _sigma;
         gpr_params.l = _l;
         gpr_params.verborse = _verborse;
-        gpr_params.lb = _lb;
-        gpr_params.ub = _ub;
         gpr_params.optimize = _optimize;
         std::vector<Eigen::Vector2d> train_x;  // transformed neighbour points
         Eigen::VectorXd train_y;
@@ -440,8 +452,6 @@ public:
         {
             Eigen::Vector3d pt = init_SE3.topLeftCorner(3,3) * _neigh_pts[neigh_i] + init_SE3.topRightCorner(3,1);
             Eigen::Vector2d uv = {_fx * pt(0) / pt(2) + _cx, _fy * pt(1) / pt(2) + _cy};
-            if(!(0 <= uv(0) && uv(0) < W && 0<= uv(1) && uv(1) < H && pt(2) > 0))
-                continue;
             train_x[neigh_i] = uv;
             train_y[neigh_i] = pt(2);
             if(neigh_i == 0)
@@ -476,8 +486,6 @@ public:
         {
             VectorN<3 ,T> _tf_pt = _Rcl * neigh_pts[neigh_i].cast<T>() + _tcl;
             VectorN<2, T> _uv = {_fx * _tf_pt(0) / _tf_pt(2) + _cx, _fy * _tf_pt(1) / _tf_pt(2) + _cy}; /*X/Z, Y/Z*/
-            if(!(0 <= _uv(0) && _uv(0) < W && 0<= _uv(1) && _uv(1) < H && _tf_pt(2) > 0))
-                continue;
             _train_x[neigh_i] = _uv;
             _train_y(neigh_i) = _tf_pt(2);
         }
@@ -531,14 +539,11 @@ public:
         const double &_u0, const double &_v0, 
         const std::vector<double> &_u1_list, const std::vector<double> &_v1_list,
         const std::vector<Eigen::Matrix3d> &_R_list, const std::vector<Eigen::Vector3d> &_t_list,
-        const bool _optimize=false, const bool _verborse=false,
-        const Eigen::Vector2d &_lb=(Eigen::Vector2d() << 1e-3, 1e-3).finished(),
-        const Eigen::Vector2d &_ub=(Eigen::Vector2d() << 1e3, 1e3).finished())
+        const bool _optimize=false, const bool _verborse=false)
      {
         ceres::DynamicAutoDiffCostFunction<IBA_GPRFactor, 6> *cost_func = new ceres::DynamicAutoDiffCostFunction<IBA_GPRFactor, 6>(
             new IBA_GPRFactor(_sigma, _l, _sigma_noise, _neigh_pts, _init_SE3, _H, _W, _fx, _fy, _cx, _cy,
-            _u0, _v0, _u1_list, _v1_list, _R_list, _t_list, _optimize, _verborse, _lb, _ub
-        ));
+            _u0, _v0, _u1_list, _v1_list, _R_list, _t_list, _optimize, _verborse));
         cost_func->SetNumResiduals(2*_u1_list.size());
         cost_func->AddParameterBlock(7);
         return cost_func;
@@ -677,8 +682,6 @@ public:
         {
             Eigen::Vector3d pt = init_SE3.topLeftCorner(3,3) * _neigh_pts[neigh_i] + init_SE3.topRightCorner(3,1);
             Eigen::Vector2d uv = {_fx * pt(0) / pt(2) + _cx, _fy * pt(1) / pt(2) + _cy};
-            if(!(0 <= uv(0) && uv(0) < W && 0<= uv(1) && uv(1) < H && pt(2) > 0))
-                continue;
             train_x[neigh_i] = uv;
             train_y[neigh_i] = pt(2);
             if(neigh_i == 0)
@@ -713,8 +716,6 @@ public:
         {
             VectorN<3 ,T> _tf_pt = _Rcl * neigh_pts[neigh_i].cast<T>() + _tcl;
             VectorN<2, T> _uv = {_fx * _tf_pt(0) / _tf_pt(2) + _cx, _fy * _tf_pt(1) / _tf_pt(2) + _cy}; /*X/Z, Y/Z*/
-            if(!(0 <= _uv(0) && _uv(0) < W && 0<= _uv(1) && _uv(1) < H && _tf_pt(2) > 0))
-                continue;
             _train_x[neigh_i] = _uv;
             _train_y(neigh_i) = _tf_pt(2);
         }

@@ -158,7 +158,7 @@ public:
         VectorX<> alpha;  // (N, 1)
         bool state;
         std::tie(Kff, L ,alpha, Kinv, state) = compute_K_L_Alpha_Kinv(sigma, l, Dist, trY);
-        if(!state)
+        if(!state)  // Error in Cholesky Decomposition
             return false;   
         int n = alpha.rows();
         cost[0] = 0.5 * (trY.dot(alpha) + LogDet(L) + n * log(2 * M_PI));
@@ -329,7 +329,6 @@ public:
     double sigma_noise;
     double sigma;
     double l;
-    Eigen::Vector2d lb, ub;
     bool optimize;
     bool verborse;
 
@@ -346,8 +345,7 @@ public:
      * @param params GPRParams
      */
     GPR(const GPRParams &params):
-        sigma_noise(params.sigma_noise), sigma(params.sigma), l(params.l),
-        lb(params.lb), ub(params.ub), optimize(params.optimize), verborse(params.verborse){}
+        sigma_noise(params.sigma_noise), sigma(params.sigma), l(params.l), optimize(params.optimize), verborse(params.verborse){}
 
     std::tuple<double, double> fit(const std::vector<Vector2<>> &train_x, const VectorX<> &train_y)
     {

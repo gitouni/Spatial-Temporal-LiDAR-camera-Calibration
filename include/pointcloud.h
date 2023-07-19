@@ -474,7 +474,7 @@ std::tuple<Eigen::Vector3d, Eigen::Vector3d> FastEigen3x3_EV(const Eigen::Matrix
  * @return std::tuple<VecVector3d, VecIndex>  valid normals, valid indices of querys
  */
 std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, const KDTree3D* kdtree, const VecIndex &querys,
-    const double &radius, const int &max_pts, const int &min_pts=3)
+    const double &radius, const int &max_pts, const int &min_pts=3, const double &pvalue = 3.0, const double &min_eval=1e-2)
 {
     VecVector3d normals;
     VecIndex valid_indices;
@@ -500,7 +500,7 @@ std::tuple<VecVector3d, VecIndex> ComputeLocalNormal(const VecVector3d &points, 
         std::tie(normal, eval) = FastEigen3x3_EV(covariance);
         std::vector<double> eigenvalues{eval[0], eval[1], eval[2]};
         std::sort(eigenvalues.begin(), eigenvalues.end());
-        if(!(eigenvalues[2] > 3 * eigenvalues[1] && eigenvalues[2] > 3 * eigenvalues[0] && eigenvalues[2] > 1e-2))
+        if(!(eigenvalues[2] > pvalue * eigenvalues[1] && eigenvalues[2] > pvalue * eigenvalues[0] && eigenvalues[2] > min_eval))
             continue; // Valid Plane Verification
         normals.push_back(normal.normalized()); // self-to-self distance is minimum
         valid_indices.push_back(i);
@@ -638,19 +638,100 @@ std::tuple<Eigen::Vector3d, bool> ComputeLocalNormalSingle(const VecVector3d &lo
     return {normal, true};
 }
 
+
+/**
+ * @brief Compute the local Normal of a single point
+ * 
+ * @param points pointcloud
+ * @param neigh_indices indices of "points" to be computed
+ * @param query_pt query_point
+ * @param reg_threshold regression error 
+ * @return std::tuple<Eigen::Vector3d, bool> 
+ */
+std::tuple<Eigen::Vector3d, bool> ComputeLocalNormalSingleThre(const VecVector3d &points, const VecIndex &neigh_indices, const Eigen::Vector3d &query_pt,
+   const double &reg_threshold)
+{
+    Eigen::Matrix3d covariance = ComputeCovariance(points, neigh_indices);
+    Eigen::Vector3d normal;
+    std::tie(normal, std::ignore) = FastEigen3x3_EV(covariance);
+    normal.normalize();
+    double reg_err = 0;
+    for(auto const &neigh_idx:neigh_indices)
+        reg_err += std::abs((points[neigh_idx] - query_pt).dot(normal));
+    reg_err /= neigh_indices.size() - 1;
+    if(reg_err < reg_threshold)
+        return {normal, true}; // Valid Plane Verification
+    else
+        return {normal, false};
+}
+
+std::tuple<Eigen::Vector3d, bool> ComputeLocalNormalSingleThre(const VecVector3d &local_pts, const Eigen::Vector3d &query_pt, const double &reg_threshold)
+{
+    Eigen::Matrix3d covariance = ComputeCovariance(local_pts);
+    Eigen::Vector3d normal;
+    std::tie(normal, std::ignore) = FastEigen3x3_EV(covariance);
+    normal.normalize();
+    double reg_err = 0;
+    for(auto const &pt:local_pts)
+        reg_err += std::abs((pt - query_pt).dot(normal));
+    reg_err /= local_pts.size() - 1;
+    if(reg_err < reg_threshold)
+        return {normal, true}; // Valid Plane Verification
+    else
+        return {normal, false};
+}
+
+
+/**
+ * @brief Compute the normal of the single "query" point in "points"
+ * 
+ * @param points the whole point cloud
+ * @param kdtree KDTree built with point cloud (Lidar Coord)
+ * @param query index of query point
+ * @param max_radius maximum radius to compute point covariance
+ * @param min_radius minimum radius does the neighbor contain
+ * @param max_pts maximum points of the local manifold
+ * @param min_pts minimum points the local manifold should at least contain
+ * @param pvalue the maximum eigenvalue must > "pvalue" * other_eigenvalue
+ * @param min_eval the maximum eigenvalue must > min_eval
+ * @return std::tuple<Eigen::Vector3d, bool> normal, isvalid
+ */
+std::tuple<Eigen::Vector3d, bool> ComputeLocalNormalSingleThre(const VecVector3d &points, const KDTree3D* kdtree, const Eigen::Vector3d &query_pt,
+    const double &max_radius, const double &min_radius, const int &max_pts, const int &min_pts, const double &reg_threshold)
+{
+    VecIndex indices(max_pts);
+    std::vector<double> sq_dist(max_pts);
+    nanoflann::KNNResultSet<double, IndexType> resultSet(max_pts);
+    resultSet.init(indices.data(), sq_dist.data());
+    kdtree->index->findNeighbors(resultSet, query_pt.data(), nanoflann::SearchParameters());
+    std::size_t k = resultSet.size();
+    k = std::distance(sq_dist.begin(),
+                    std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
+                                    max_radius * max_radius)); // iterator difference between start and last valid index
+    indices.resize(k);
+    sq_dist.resize(k);
+    if(k < min_pts || sq_dist[k-1] < min_radius * min_radius)
+        return {(Eigen::Vector3d() << 0,0,1).finished(), false};
+    else
+        return ComputeLocalNormalSingleThre(points, indices, query_pt, reg_threshold);
+}
+
+
+
+
 /**
  * @brief Compute neighbors of of each point in points indexed by indices
  * 
  * @param points the whole point cloud
  * @param kdtree KDTree built with point cloud (Lidar Coord)
  * @param querys indices of selected points
- * @param radius radius to compute point covariance
+ * @param max_radius maximum radius to compute point covariance
  * @param max_pts maximum points of the local manifold
  * @param min_pts minimum points the local manifold should at least contain
  * @return std::tuple<std::vector<VecIndex>, VecIndex> Vec of neighbors' indices, valid index of querys
  */
 std::tuple<std::vector<VecIndex>, VecIndex> ComputeLocalNeighbor(const VecVector3d &points, const KDTree3D* kdtree, const VecIndex &querys,
-    const double &radius, const int &max_pts, const int &min_pts=3)
+    const double &max_radius, const double &min_radius, const int &max_pts, const int &min_pts=3)
 {
     std::vector<VecIndex> neighbors;
     neighbors.reserve(querys.size());
@@ -666,12 +747,13 @@ std::tuple<std::vector<VecIndex>, VecIndex> ComputeLocalNeighbor(const VecVector
         int k = resultSet.size();
         k = std::distance(sq_dist.begin(),
                       std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
-                                       radius * radius)); // iterator difference between start and last valid index
+                                       max_radius * max_radius)); // iterator difference between start and last valid index
         indices.resize(k);
-        VecIndex final_indices = UniquePoints(points, indices);
-        if(final_indices.size() < min_pts)
+        sq_dist.resize(k);
+        // VecIndex final_indices = UniquePoints(points, indices);
+        if(k < min_pts || sq_dist[k-1] < min_radius * min_radius)
             continue;
-        neighbors.push_back(final_indices); // self-to-self distance is minimum
+        neighbors.push_back(indices); // self-to-self distance is minimum
         valid_indices.push_back(i);
     }
     return {neighbors, valid_indices};
@@ -685,13 +767,14 @@ std::tuple<std::vector<VecIndex>, VecIndex> ComputeLocalNeighbor(const VecVector
  * @param points the whole point cloud
  * @param kdtree KDTree built with point cloud (Lidar Coord)
  * @param query_point query point
- * @param radius radius to compute point covariance
+ * @param max_radius maximum radius to compute point covariance
+ * @param min_radius minimum radius does the neighbor contain
  * @param max_pts maximum points of the local manifold
  * @param min_pts minimum points the local manifold should at least contain
  * @return std::tuple<VecIndex, bool> Vector of neighbor indices, isvalid
  */
 std::tuple<VecIndex, bool> ComputeLocalNeighborSingle(const VecVector3d &points, const KDTree3D* kdtree, const Eigen::Vector3d &query_point,
-    const double &radius, const int &max_pts, const int &min_pts=3)
+    const double &max_radius, const double &min_radius, const int &max_pts, const int &min_pts=3)
 {
     VecIndex indices(max_pts);
     std::vector<double> sq_dist(max_pts);
@@ -701,10 +784,10 @@ std::tuple<VecIndex, bool> ComputeLocalNeighborSingle(const VecVector3d &points,
     int k = resultSet.size();
     k = std::distance(sq_dist.begin(),
                     std::lower_bound(sq_dist.begin(), sq_dist.begin() + k,
-                                    radius * radius)); // iterator difference between start and last valid index
+                                    max_radius * max_radius)); // iterator difference between start and last valid index
     indices.resize(k);
     sq_dist.resize(k);
-    if(k < min_pts)
+    if(k < min_pts || sq_dist[k-1] < min_radius * min_radius)
         return {indices, false};
     return {indices, true};
 }
