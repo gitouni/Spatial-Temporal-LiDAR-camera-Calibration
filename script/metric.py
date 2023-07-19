@@ -5,8 +5,8 @@ import os
 
 def options():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--gt",type=str,default="../KITTI-02/calib_res/gt_calib_02.txt")
-    parser.add_argument("--pred",type=str,default="../KITTI-02/calib_res/iba_global_bias_02.txt")
+    parser.add_argument("--gt",type=str,default="../KITTI-05/calib_res/gt_calib_05.txt")
+    parser.add_argument("--pred",type=str,default="../KITTI-05/calib_res/iba_global_baonly_05.txt")
     return parser.parse_args()
 
 def inv_pose(pose:np.ndarray):
@@ -28,5 +28,8 @@ if __name__ == "__main__":
     tsl_err = err_ex[:3,3]
     R = Rotation.from_matrix(err_ex[:3,:3])
     rot_err = R.as_euler("zyx",True)
-    print("x:{},y:{},z:{}".format(*tsl_err))
     print("roll:{},pitch:{},yaw:{}".format(*rot_err))
+    print("x:{},y:{},z:{}".format(*tsl_err))
+    print("Rotation RMSE:{} deg".format(np.linalg.norm(rot_err)))
+    print("Translation RMSE:{} m".format(np.linalg.norm(tsl_err)))
+    

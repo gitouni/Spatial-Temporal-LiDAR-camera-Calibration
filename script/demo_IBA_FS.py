@@ -35,19 +35,19 @@ def options():
     parser = argparse.ArgumentParser()
     kitti_parser = parser.add_argument_group()
     kitti_parser.add_argument("--base_dir",type=str,default="/data/DATA/data_odometry/dataset/")
-    kitti_parser.add_argument("--seq",type=int,default=0,choices=[i for i in range(11)])
+    kitti_parser.add_argument("--seq",type=int,default=5,choices=[i for i in range(11)])
     
     io_parser = parser.add_argument_group()
-    io_parser.add_argument("--KeyFrameDir",type=str,default="../KITTI-00/KeyFrames")
-    io_parser.add_argument("--FrameIdFile",type=str,default="../KITTI-00/FrameId.yml")
-    io_parser.add_argument("--MapFile",type=str,default="../KITTI-00/Map.yml")
+    io_parser.add_argument("--KeyFrameDir",type=str,default="../KITTI-05/KeyFrames")
+    io_parser.add_argument("--FrameIdFile",type=str,default="../KITTI-05/FrameId.yml")
+    io_parser.add_argument("--MapFile",type=str,default="../KITTI-05/Map.yml")
     io_parser.add_argument("--KeyFrameIdKey",type=str,default="mnId")
     io_parser.add_argument("--FrameIdKey",type=str,default="mnFrameId")
     io_parser.add_argument("--KeyPointsKey",type=str,default="mvKeysUn")
     io_parser.add_argument("--MapPointKey",type=str,default="mvpMapPointsId")
     io_parser.add_argument("--CorrKey",type=str,default="mvpCorrKeyPointsId")
-    io_parser.add_argument("--index_i",type=int,default=75)
-    io_parser.add_argument("--index_j",type=int,default=79)
+    io_parser.add_argument("--index_i",type=int,default=1039)
+    io_parser.add_argument("--index_j",type=int,default=1040)
     io_parser.add_argument("--debug_log",type=str,default="")
     io_parser.add_argument("--Twc_file",type=str,default="../Twc.txt")
     io_parser.add_argument("--Twl_file",type=str,default="../Twl.txt")
@@ -165,6 +165,7 @@ if __name__ == "__main__":
     tgt_pcd_arr = dataStruct.get_velo(tgt_file_index)[:,:3]  # [N, 3]
     src_img = np.array(dataStruct.get_cam0(src_file_index))  # [H, W, 3]
     tgt_img = np.array(dataStruct.get_cam0(tgt_file_index))  # [H, W, 3]
+    img_shape = src_img.shape[:2]
     src_pose = dataStruct.poses[src_file_index]
     tgt_pose = dataStruct.poses[tgt_file_index]
     camera_motion:np.ndarray = inv_pose(tgt_pose) @ src_pose  # Tc2w * Twc1
@@ -174,6 +175,20 @@ if __name__ == "__main__":
     src_pcd_camcoord = nptran(src_pcd_arr, extran)
     proj_src_pcd, src_rev = npproj(src_pcd_camcoord, np.eye(4), intran, src_img.shape)
     src_pcd_camcoord = src_pcd_camcoord[src_rev]
+    tgt_pcd_camcoord = nptran(src_pcd_camcoord, camera_motion)
+    proj_tgt_pcd, tgt_rev = npproj(tgt_pcd_camcoord, np.eye(4), intran, tgt_img.shape)
+    tgt_pcd_camcoord = tgt_pcd_camcoord[tgt_rev]
+    plt.figure(dpi=200)
+    plt.subplot(2,1,1)
+    plt.title("Frame {} - {}".format(src_file_index+1, tgt_file_index+1))
+    plt.imshow(src_img,cmap="Greys_r")
+    plt.scatter(proj_src_pcd[:,0],proj_src_pcd[:,1],c=src_pcd_camcoord[:,-1],cmap='rainbow_r',alpha=0.8,s=0.5)
+    plt.axis([0,img_shape[1],img_shape[0],0])
+    plt.subplot(2,1,2)
+    plt.imshow(tgt_img,cmap="Greys_r")
+    plt.scatter(proj_tgt_pcd[:,0],proj_tgt_pcd[:,1],c=tgt_pcd_camcoord[:,-1],cmap='rainbow_r',alpha=0.8,s=0.5)
+    plt.axis([0,img_shape[1],img_shape[0],0])
+    plt.show()
     src_2d_kdtree = cKDTree(proj_src_pcd, leafsize=10)
     if args.depth_conflict:
         src_dists, src_pcd_querys = src_2d_kdtree.query(src_matched_pts, args.max_2d_nn, eps=1e-4, p=2, workers=-1)
@@ -228,8 +243,10 @@ if __name__ == "__main__":
     plt.subplot(2,1,1)
     plt.title("Frame {} - {} | Matched:{} | error:{:0.4}".format(src_file_index+1, tgt_file_index+1, tgt_matched_pts.shape[0],err))
     plt.imshow(draw_src_img)
+    plt.axis([0,img_shape[1],img_shape[0],0])
     plt.subplot(2,1,2)
     plt.imshow(draw_tgt_img)
+    plt.axis([0,img_shape[1],img_shape[0],0])
     plt.show()
 
     
