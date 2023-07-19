@@ -242,71 +242,72 @@ ${Open3D_LIBRARIES}
 )
 
 
-add_executable(iba_calib_test src/examples/iba_calib_test.cpp)
-add_dependencies(iba_calib_test ORB_SLAM2)
-target_link_libraries(iba_calib_test
-${ORB_LIBARIES}
-${PCL_LIBRARIES}
-${G2O_LIBS}
-${GLOG_LIB} 
-)
-target_include_directories(iba_calib_test PRIVATE 
-${ORB_INCLUDE_DIRS}
-)
 
-add_executable(iba_calib_plane src/examples/iba_calib_plane.cpp)
-add_dependencies(iba_calib_plane ORB_SLAM2)
-target_link_libraries(iba_calib_plane
-${ORB_LIBARIES}
-${PCL_LIBRARIES}
-${G2O_LIBS}
-${GLOG_LIB} 
-)
-target_include_directories(iba_calib_plane PRIVATE 
-${ORB_INCLUDE_DIRS}
-)
+# add_executable(iba_calib_test src/examples/iba_calib_test.cpp)
+# add_dependencies(iba_calib_test ORB_SLAM2)
+# target_link_libraries(iba_calib_test
+# ${ORB_LIBARIES}
+# ${PCL_LIBRARIES}
+# ${G2O_LIBS}
+# ${GLOG_LIB} 
+# )
+# target_include_directories(iba_calib_test PRIVATE 
+# ${ORB_INCLUDE_DIRS}
+# )
 
-add_executable(iba_calib_plane2 src/examples/iba_calib_plane2.cpp)
-add_dependencies(iba_calib_plane2 ORB_SLAM2)
-target_link_libraries(iba_calib_plane2
-${ORB_LIBARIES}
-${PCL_LIBRARIES}
-${G2O_LIBS}
-${GLOG_LIB} 
-${CERES_LIBRARIES}
-)
-target_include_directories(iba_calib_plane2 PRIVATE 
-${ORB_INCLUDE_DIRS}
-${CERES_INCLUDE_DIRS}
-)
+# add_executable(iba_calib_plane src/examples/iba_calib_plane.cpp)
+# add_dependencies(iba_calib_plane ORB_SLAM2)
+# target_link_libraries(iba_calib_plane
+# ${ORB_LIBARIES}
+# ${PCL_LIBRARIES}
+# ${G2O_LIBS}
+# ${GLOG_LIB} 
+# )
+# target_include_directories(iba_calib_plane PRIVATE 
+# ${ORB_INCLUDE_DIRS}
+# )
 
-add_executable(iba_calib_gpr2 src/examples/iba_calib_gpr2.cpp)
-add_dependencies(iba_calib_gpr2 ORB_SLAM2)
-target_link_libraries(iba_calib_gpr2
-${ORB_LIBARIES}
-${PCL_LIBRARIES}
-${G2O_LIBS}
-${GLOG_LIB} 
-${CERES_LIBRARIES}
-)
-target_include_directories(iba_calib_gpr2 PRIVATE 
-${ORB_INCLUDE_DIRS}
-${CERES_INCLUDE_DIRS}
-)
+# add_executable(iba_calib_plane2 src/examples/iba_calib_plane2.cpp)
+# add_dependencies(iba_calib_plane2 ORB_SLAM2)
+# target_link_libraries(iba_calib_plane2
+# ${ORB_LIBARIES}
+# ${PCL_LIBRARIES}
+# ${G2O_LIBS}
+# ${GLOG_LIB} 
+# ${CERES_LIBRARIES}
+# )
+# target_include_directories(iba_calib_plane2 PRIVATE 
+# ${ORB_INCLUDE_DIRS}
+# ${CERES_INCLUDE_DIRS}
+# )
 
-add_executable(iba_calib3d_gpr src/examples/iba_calib3d_gpr.cpp)
-add_dependencies(iba_calib3d_gpr ORB_SLAM2)
-target_link_libraries(iba_calib3d_gpr
-${ORB_LIBARIES}
-${PCL_LIBRARIES}
-${G2O_LIBS}
-${GLOG_LIB} 
-${CERES_LIBRARIES}
-)
-target_include_directories(iba_calib3d_gpr PRIVATE 
-${ORB_INCLUDE_DIRS}
-${CERES_INCLUDE_DIRS}
-)
+# add_executable(iba_calib_gpr2 src/examples/iba_calib_gpr2.cpp)
+# add_dependencies(iba_calib_gpr2 ORB_SLAM2)
+# target_link_libraries(iba_calib_gpr2
+# ${ORB_LIBARIES}
+# ${PCL_LIBRARIES}
+# ${G2O_LIBS}
+# ${GLOG_LIB} 
+# ${CERES_LIBRARIES}
+# )
+# target_include_directories(iba_calib_gpr2 PRIVATE 
+# ${ORB_INCLUDE_DIRS}
+# ${CERES_INCLUDE_DIRS}
+# )
+
+# add_executable(iba_calib3d_gpr src/examples/iba_calib3d_gpr.cpp)
+# add_dependencies(iba_calib3d_gpr ORB_SLAM2)
+# target_link_libraries(iba_calib3d_gpr
+# ${ORB_LIBARIES}
+# ${PCL_LIBRARIES}
+# ${G2O_LIBS}
+# ${GLOG_LIB} 
+# ${CERES_LIBRARIES}
+# )
+# target_include_directories(iba_calib3d_gpr PRIVATE 
+# ${ORB_INCLUDE_DIRS}
+# ${CERES_INCLUDE_DIRS}
+# )
 
 # add_executable(iba_calib3dq_gpr src/examples/iba_calib3dq_gpr.cpp)
 # add_dependencies(iba_calib3dq_gpr ORB_SLAM2)
@@ -325,6 +326,34 @@ ${CERES_INCLUDE_DIRS}
 # ${IGL_INCLUDE_DIR}
 # )
 
+# add_executable(uiba_local src/examples/uiba_local.cpp)
+# add_dependencies(uiba_local ORB_SLAM2)
+# target_link_libraries(uiba_local
+# ${ORB_LIBARIES}
+# ${PCL_LIBRARIES}
+# ${G2O_LIBS}
+# ${GLOG_LIB} 
+# ${CERES_LIBRARIES}
+# )
+# target_include_directories(uiba_local PRIVATE 
+# ${ORB_INCLUDE_DIRS}
+# ${CERES_INCLUDE_DIRS}
+# )
+
+
+add_executable(iba_local src/examples/iba_local.cpp)
+add_dependencies(iba_local ORB_SLAM2)
+target_link_libraries(iba_local
+${ORB_LIBARIES}
+${PCL_LIBRARIES}
+${G2O_LIBS}
+${GLOG_LIB} 
+${CERES_LIBRARIES}
+)
+target_include_directories(iba_local PRIVATE 
+${ORB_INCLUDE_DIRS}
+${CERES_INCLUDE_DIRS}
+)
 
 add_executable(iba_global src/examples/iba_global.cpp)
 add_dependencies(iba_global ORB_SLAM2)
@@ -340,35 +369,49 @@ ${ORB_INCLUDE_DIRS}
 ${NOMAD_INCLUDE_DIR}
 )
 
-add_executable(iba_global_stable src/examples/iba_global_stable.cpp)
-add_dependencies(iba_global_stable ORB_SLAM2)
-target_link_libraries(iba_global_stable
+add_executable(iba_global_bias src/examples/iba_global_bias.cpp)
+add_dependencies(iba_global_bias ORB_SLAM2)
+target_link_libraries(iba_global_bias
 ${ORB_LIBARIES}
 ${PCL_LIBRARIES}
 ${G2O_LIBS}
 ${GLOG_LIB}
 ${NOMAD_LIBS}
 )
-target_include_directories(iba_global_stable PRIVATE 
+target_include_directories(iba_global_bias PRIVATE 
 ${ORB_INCLUDE_DIRS}
 ${NOMAD_INCLUDE_DIR}
 )
 
-add_executable(uiba_calib_gpr src/examples/uiba_calib_gpr.cpp)
-add_dependencies(uiba_calib_gpr ORB_SLAM2)
-target_link_libraries(uiba_calib_gpr
+add_executable(iba_global_split src/examples/iba_global_split.cpp)
+add_dependencies(iba_global_split ORB_SLAM2)
+target_link_libraries(iba_global_split
 ${ORB_LIBARIES}
 ${PCL_LIBRARIES}
 ${G2O_LIBS}
-${GLOG_LIB} 
-${CERES_LIBRARIES}
+${GLOG_LIB}
+${NOMAD_LIBS}
 )
-target_include_directories(uiba_calib_gpr PRIVATE 
+target_include_directories(iba_global_split PRIVATE 
 ${ORB_INCLUDE_DIRS}
-${CERES_INCLUDE_DIRS}
-${IGL_INCLUDE_DIR}
-${IGL_VIEWER_INCLUDE_DIR}
+${NOMAD_INCLUDE_DIR}
 )
+
+# add_executable(uiba_calib_gpr src/examples/uiba_calib_gpr.cpp)
+# add_dependencies(uiba_calib_gpr ORB_SLAM2)
+# target_link_libraries(uiba_calib_gpr
+# ${ORB_LIBARIES}
+# ${PCL_LIBRARIES}
+# ${G2O_LIBS}
+# ${GLOG_LIB} 
+# ${CERES_LIBRARIES}
+# )
+# target_include_directories(uiba_calib_gpr PRIVATE 
+# ${ORB_INCLUDE_DIRS}
+# ${CERES_INCLUDE_DIRS}
+# ${IGL_INCLUDE_DIR}
+# ${IGL_VIEWER_INCLUDE_DIR}
+# )
 
 # add_executable(uiba_calib_plane src/examples/uiba_calib_plane.cpp)
 # add_dependencies(uiba_calib_plane ORB_SLAM2)
