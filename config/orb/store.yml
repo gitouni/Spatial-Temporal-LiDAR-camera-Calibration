@@ -1,0 +1,12 @@
+root_path: /home/bit/CODE/Research/AutoCalib/ST_Calib/
+io:
+  seq_dir: data/00/
+  save_pose: KITTI_00/slam_res/Twc.txt
+  keyframe_dir: KITTI_00/KeyFrames/
+  MapFile: KITTI_00/Map.yml
+orb:
+  setting: config/orb_ori/KITTI00-02.yaml
+  Vocabulary: data/Vocabulary/ORBvoc.txt
+  image_dir: image_0/
+  timestamp: times.txt
+  vis: true

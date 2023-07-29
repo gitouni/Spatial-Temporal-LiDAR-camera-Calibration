@@ -4,5 +4,5 @@ orb_setting:
   
 io:
   KeyFrameDir: ../KITTI-00/KeyFrames/
-  MapFile: ../KITTI-00/Map.xml
-  SavePath: ../KITTI-00/orb_map_00.pcd
+  MapFile: ../KITTI-00/Map.yml
+  SavePath: ../KITTI-00/slam_res/orb_map_00.pcd
