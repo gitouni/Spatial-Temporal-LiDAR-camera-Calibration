@@ -1,32 +1,36 @@
 %YAML:1.0
+---
 gui:
   verborse: true
   vis: false
+  
 
 odom:
   voxel: 0.2
   o3d_voxel: 0.2
   keyframeMeterGap: 1.5
   keyframeRadGap: 0.15
-  icp_corase_dist: 10
-  icp_refine_dist: 0.6
+  icp_corase_dist: 1.0  # 3.0
+  icp_refine_dist: 0.3
   icp_max_iter: 30
 
 loopclosure:
-  LCkeyframeMeterGap: 10
-  LCkeyframeRadGap: 2
-  LCSubmapSize: 10
-  loopOverlapThre: 0.7
-  loopInlierRMSEThre: 0.3
+  LCkeyframeMeterGap: 3  # 10
+  LCkeyframeRadGap: 1 # 2
+  LCSubmapSize: 25  # 10
+  loopOverlapThre: 0.5 # 0.7
+  loopInlierRMSEThre: 0.2
 
 multiway:
   use: false
   MRmaxIter: 100
   MRmaxCorrDist: 1.2
   MREdgePruneThre: 0.25
-  RefineOdom: false
+  RefineOdom: true
 
 io:
-  isam_poses: ../floam_isam_00.txt
-  mr_graph: ../floam_pg.json
-  mr_poses: ../floam_mr_00.txt
+  isam_poses: ../KITTI-07/slam_res/floam_isam_07.txt
+  mr_graph: ../KITTI-07/slam_res/floam_pg.json
+  mr_poses: ../KITTI-07/slam_res/floam_mr_07.txt
+  save_map: false
+  map_path: ../KITTI-07/slam_res/floam_map_07.pcd
