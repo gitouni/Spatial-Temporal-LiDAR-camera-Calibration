@@ -43,7 +43,6 @@ def computeV(rvec:np.ndarray):
     theta = np.linalg.norm(rvec)
     skew_rvec = skew(rvec)
     skew_rvec2 = skew_rvec @ skew_rvec
-    # use Taylor expansion of trigonometric functions to achieve better numeric performance when theta is approximately 0.
     if theta > 1e-8:
         V = np.eye(3) + (1 - np.cos(theta))/theta**2 * skew_rvec + (theta - np.sin(theta))/theta**3 * skew_rvec2
     else:
@@ -63,6 +62,22 @@ def toVec(SE3:np.ndarray):
     rvec = R.as_rotvec()
     V = computeV(rvec)
     tvec = np.linalg.inv(V) @ SE3[:3,3]
+    return rvec, tvec
+
+def toVecSplit(rot:np.ndarray, tsl:np.ndarray):
+    """SE3 Matrix to rvec and tvec
+
+    Args:
+        rot (np.ndarray): 3x3 `np.ndarray`
+        tsl (np.ndarray): 3 `np.ndarray`
+
+    Returns:
+        rvec, tvec: `np.ndarray`
+    """
+    R = Rotation.from_matrix(rot)
+    rvec = R.as_rotvec()
+    V = computeV(rvec)
+    tvec = np.linalg.inv(V) @ tsl
     return rvec, tvec
 
 def toMat(rvec:np.ndarray, tvec:np.ndarray):
@@ -108,10 +123,10 @@ def read_pose_file(filename:str) -> list:
     return pose_list
 
 def inv_pose(pose:np.ndarray):
-    inv_pose = np.eye(4)
-    inv_pose[:3,:3] = pose[:3,:3].T
-    inv_pose[:3,3] = -inv_pose[:3,:3] @ pose[:3, 3]
-    return inv_pose
+    ivpose = np.eye(4)
+    ivpose[:3,:3] = pose[:3,:3].T
+    ivpose[:3,3] = -ivpose[:3,:3] @ pose[:3, 3]
+    return ivpose
 
 def pose2motionList(pose_list:list) -> list:
     motion_list = []

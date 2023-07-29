@@ -5,8 +5,8 @@ import os
 
 def options():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--gt",type=str,default="../KITTI-05/calib_res/gt_calib_05.txt")
-    parser.add_argument("--pred",type=str,default="../KITTI-05/calib_res/iba_global_baonly_05.txt")
+    parser.add_argument("--gt",type=str,default="../KITTI-00/calib_res/gt_calib_00.txt")
+    parser.add_argument("--pred",type=str,default="../KITTI-00/calib_res/iba_global_pl_00.txt")
     return parser.parse_args()
 
 def inv_pose(pose:np.ndarray):
@@ -25,11 +25,11 @@ if __name__ == "__main__":
     pred_ex = np.eye(4)
     pred_ex[:3,:] = pred_data.reshape(3,4)
     err_ex = inv_pose(gt_ex) @ pred_ex
-    tsl_err = err_ex[:3,3]
+    tsl_err = err_ex[:3,3]*1.0e2 # cm
     R = Rotation.from_matrix(err_ex[:3,:3])
     rot_err = R.as_euler("zyx",True)
-    print("roll:{},pitch:{},yaw:{}".format(*rot_err))
-    print("x:{},y:{},z:{}".format(*tsl_err))
+    print("roll:{},pitch:{},yaw:{} deg".format(*rot_err))
+    print("x:{},y:{},z:{} cm".format(*tsl_err))
     print("Rotation RMSE:{} deg".format(np.linalg.norm(rot_err)))
-    print("Translation RMSE:{} m".format(np.linalg.norm(tsl_err)))
+    print("Translation RMSE:{} cm".format(np.linalg.norm(tsl_err)))
     
