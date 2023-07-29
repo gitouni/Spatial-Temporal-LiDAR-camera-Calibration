@@ -1,0 +1,12 @@
+BaseDir: ../KITTI-02/
+KeyFrameDir: KeyFrames/
+VOFile: slam_res/Twc.txt
+LOFile: slam_res/floam_isam_02.txt
+init_sim3: calib_res/he_rb_calib_02.txt
+VOIdFile: FrameId.yml
+ORBVocabulary: ../data/Vocabulary/ORBvoc.txt
+ORBConfig: ../config/orb_ori/KITTI00-02.yaml
+MapFile: Map.yml
+ResFile: calib_res/ba_local_calib_02.txt
+method: local # global or local
+method_options: {"global":1,"local":2}

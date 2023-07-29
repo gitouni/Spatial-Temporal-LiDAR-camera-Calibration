@@ -1,0 +1,29 @@
+%YAML:1.0
+---
+io:
+  BaseDir: ../KITTI-00/
+  VOFile: slam_res/Twc.txt
+  LOFile: slam_res/floam_isam_00.txt
+  VOIdFile: FrameId.yml
+  ResFile: calib_res/iba_calib_00.txt
+  init_sim3: calib_res/pso_calib_00.txt
+  PointCloudDir: ../data/00/velodyne
+
+orb:
+  Vocabulary: ../data/Vocabulary/ORBvoc.txt
+  Config: ../config/orb_ori/KITTI00-02.yaml
+  KeyFrameDir: ../KITTI-00/KeyFrames/
+  MapFile: ../KITTI-00/Map.yml
+
+runtime:
+  max_pixel_dist: 1.5
+  min_covis_weight: 200
+  kdtree2d_max_leaf_size: 10
+  kdtree3d_max_leaf_size: 30
+  neigh_radius: 0.6
+  neigh_max_pts: 30
+  max_iba_iter: 30
+  pl_eval_factor: 10
+  inner_iba_iter: 10
+  robust_kernerl_delta: 10
+  verborse: true

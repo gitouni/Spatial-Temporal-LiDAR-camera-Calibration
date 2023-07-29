@@ -1,0 +1,37 @@
+%YAML:1.0
+---
+io:
+  BaseDir: ../KITTI-02/
+  VOFile: slam_res/Twc.txt
+  LOFile: slam_res/floam_isam_00.txt
+  VOIdFile: FrameId.yml
+  ResFile: calib_res/iba_calib_gpr_02.txt
+  init_sim3: calib_res/iba_global_pl_02.txt
+  PointCloudDir: ../data/02/velodyne
+  PointCloudSkip: 1
+  PointCloudOnlyPositiveX: true  # set to false to load points with negative X, or set true to save memory, provided you assume it is prior knowledge
+
+orb:
+  Vocabulary: ../data/Vocabulary/ORBvoc.txt
+  Config: ../config/orb_ori/KITTI00-02.yaml
+  KeyFrameDir: ../KITTI-02/KeyFrames/
+  MapFile: ../KITTI-02/Map.yml
+
+runtime:
+  max_pixel_dist: 1.5
+  num_best_convis: 10
+  min_covis_weight: 200
+  kdtree2d_max_leaf_size: 10
+  kdtree3d_max_leaf_size: 30
+  neigh_radius: 3.0
+  neigh_max_pts: 30
+  max_iba_iter: 30
+  inner_iba_iter: 10
+  sq_err_threshold: 500
+  robust_kernel_delta: 6.25
+  robust_kernel_3ddelta: 0.5
+  init_sigma: 10
+  init_l: 10
+  sigma_noise: 1e-10
+  optimize_gpr: false
+  verborse: true
