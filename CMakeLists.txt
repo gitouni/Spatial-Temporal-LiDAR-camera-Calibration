@@ -369,33 +369,45 @@ ${ORB_INCLUDE_DIRS}
 ${NOMAD_INCLUDE_DIR}
 )
 
-add_executable(iba_global_bias src/examples/iba_global_bias.cpp)
-add_dependencies(iba_global_bias ORB_SLAM2)
-target_link_libraries(iba_global_bias
+add_executable(iba_func src/examples/iba_func.cpp)
+add_dependencies(iba_func ORB_SLAM2)
+target_link_libraries(iba_func
 ${ORB_LIBARIES}
 ${PCL_LIBRARIES}
 ${G2O_LIBS}
 ${GLOG_LIB}
-${NOMAD_LIBS}
 )
-target_include_directories(iba_global_bias PRIVATE 
+target_include_directories(iba_func PRIVATE 
 ${ORB_INCLUDE_DIRS}
-${NOMAD_INCLUDE_DIR}
 )
 
-add_executable(iba_global_split src/examples/iba_global_split.cpp)
-add_dependencies(iba_global_split ORB_SLAM2)
-target_link_libraries(iba_global_split
-${ORB_LIBARIES}
-${PCL_LIBRARIES}
-${G2O_LIBS}
-${GLOG_LIB}
-${NOMAD_LIBS}
-)
-target_include_directories(iba_global_split PRIVATE 
-${ORB_INCLUDE_DIRS}
-${NOMAD_INCLUDE_DIR}
-)
+# add_executable(iba_global_bias src/examples/iba_global_bias.cpp)
+# add_dependencies(iba_global_bias ORB_SLAM2)
+# target_link_libraries(iba_global_bias
+# ${ORB_LIBARIES}
+# ${PCL_LIBRARIES}
+# ${G2O_LIBS}
+# ${GLOG_LIB}
+# ${NOMAD_LIBS}
+# )
+# target_include_directories(iba_global_bias PRIVATE 
+# ${ORB_INCLUDE_DIRS}
+# ${NOMAD_INCLUDE_DIR}
+# )
+
+# add_executable(iba_global_split src/examples/iba_global_split.cpp)
+# add_dependencies(iba_global_split ORB_SLAM2)
+# target_link_libraries(iba_global_split
+# ${ORB_LIBARIES}
+# ${PCL_LIBRARIES}
+# ${G2O_LIBS}
+# ${GLOG_LIB}
+# ${NOMAD_LIBS}
+# )
+# target_include_directories(iba_global_split PRIVATE 
+# ${ORB_INCLUDE_DIRS}
+# ${NOMAD_INCLUDE_DIR}
+# )
 
 # add_executable(uiba_calib_gpr src/examples/uiba_calib_gpr.cpp)
 # add_dependencies(uiba_calib_gpr ORB_SLAM2)
@@ -428,21 +440,21 @@ ${NOMAD_INCLUDE_DIR}
 # )
 
 
-add_executable(test_gpr src/test/test_gpr.cpp)
-target_link_libraries(test_gpr
-${GLOG_LIB}
-${CERES_LIBRARIES}
-)
+# add_executable(test_gpr src/test/test_gpr.cpp)
+# target_link_libraries(test_gpr
+# ${GLOG_LIB}
+# ${CERES_LIBRARIES}
+# )
 
 
-add_executable(test_igl src/test/test_igl.cpp)
-target_link_libraries(test_igl
-${IO_LIBS}
-${Open3D_LIBRARIES}
-${IGL_LIBS}
-)
+# add_executable(test_igl src/test/test_igl.cpp)
+# target_link_libraries(test_igl
+# ${IO_LIBS}
+# ${Open3D_LIBRARIES}
+# ${IGL_LIBS}
+# )
 
-target_include_directories(test_igl PRIVATE 
-${IGL_INCLUDE_DIR}
-${IGL_VIEWER_INCLUDE_DIR}
-)
+# target_include_directories(test_igl PRIVATE 
+# ${IGL_INCLUDE_DIR}
+# ${IGL_VIEWER_INCLUDE_DIR}
+# )
