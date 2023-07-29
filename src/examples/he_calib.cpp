@@ -72,9 +72,9 @@ int main(int argc, char** argv){
     std::cout << "Rotation: \n" << RCL << std::endl;
     std::cout << "Translation: \n" << tCL << std::endl;
     std::cout << "s :" << s << std::endl;
+    writeSim3(resFileName, RCL, tCL, s);
     if(zero_translation)
         tCL.setZero(); // Translation is too bad
-    writeSim3(resFileName, RCL, tCL, s);
     std::cout << "Result of Hand-eye Calibration saved to " << resFileName << std::endl;
     std::tie(RCL,tCL,s) = HECalibRobustKernelg2o(vmTwc, vmTwl, RCL, tCL, s, robust_kernel_size, regulation, regulation_weight, verborse);
     std::cout << "Robust Kernel Hand-eye Calibration with Regulation:\n";

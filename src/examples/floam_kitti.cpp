@@ -31,6 +31,7 @@ int main(int argc, char **argv){
     listdir(velo_files,velo_dir);
     std::cout << "Found " << velo_files.size() << " velodyne files." << std::endl;
     std::ofstream res_stream(res_file.c_str(), std::ios::ate);  // write mode | ASCII mode
+    res_stream << std::setprecision(6);  // fixed precision;
     FLOAM::System SLAM(FLOAM::HDL_64);
     std::cout << "Create FLOAM SLAM successfully." << std::endl;
     for(std::size_t i=0; i<velo_files.size(); ++i){
@@ -108,7 +109,7 @@ void writeKittiData(std::ofstream &fs, Eigen::Isometry3d &mat, bool end){
     short cnt = 0;
     for(short i=0; i<3; ++i)
         for(short j=0; j<4; ++j){
-            fs << std::setprecision(6) << mat(i,j);
+            fs << mat(i,j);
             ++cnt;
             if(cnt!=12) fs << " ";
             else if(!end) fs << "\n";

@@ -12,10 +12,7 @@
 #include "orb_slam/include/System.h"
 #include "orb_slam/include/KeyFrame.h"
 #include <opencv2/core/eigen.hpp>
-#include "Nomad/nomad.hpp"
-#include "Cache/CacheBase.hpp"
 #include <unordered_map>
-
 
 typedef std::uint32_t IndexType; // other types cause error, why?
 typedef std::vector<IndexType> VecIndex;
@@ -23,6 +20,23 @@ typedef std::pair<IndexType, IndexType> CorrType;
 typedef std::vector<CorrType> CorrSet;
 typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector2d, double, 2, nanoflann::metric_L2_Simple, IndexType> KDTree2D;
 typedef nanoflann::KDTreeVectorOfVectorsAdaptor<VecVector3d, double, 3, nanoflann::metric_L2_Simple, IndexType> KDTree3D;
+
+void ReadSim3List(const std::string &fileName, std::vector<g2o::Vector7> &sim3List){
+    if(!file_exist(fileName)){
+        throw std::runtime_error("Cannot open file: "+ fileName);
+        return;
+    }
+    std::ifstream ifs(fileName);
+    while(ifs.peek()!=EOF){
+        double data[7];
+        for(int i=0; i<7; ++i){
+            ifs >> data[i];
+        }
+        g2o::Vector7 sim3log(data);
+        sim3List.push_back(sim3log);
+    }
+    ifs.close();
+}
 
 
 class IBAGlobalParams{
@@ -36,19 +50,14 @@ public:
     int min_covis_weight = 150;
     double corr_3d_2d_threshold = 40.;
     double corr_3d_3d_threshold = 5.;
-    double he_threshold = 0.05;
     int norm_max_pts = 30;
     int norm_min_pts = 5;
     double norm_radius = 0.6;
     double norm_reg_threshold = 0.04;
     double min_diff_dist = 0.01;
     std::vector<double> err_weight;
-    std::vector<double> lb;
-    std::vector<double> ub;
     int PointCloudskip = 1;
     bool PointCloudOnlyPositiveX = false;
-    int max_bbeval = 200;
-    double valid_rate = 0.5;
     bool verborse = true;
     bool use_plane = true;
 };
@@ -166,10 +175,10 @@ std::tuple<bool, double> ComputeAlignmentDist(const KDTree3D* kdtree, const VecV
  * @param KeyFrames 
  * @param iba_params 
  * @param multiprocessing 
- * @return std::tuple<double, double, int, int> fobj, C, valid_edge_cnt, edge_cnt
+ * @return std::tuple<double, double, ,double, int, int> f1, f2, C, valid_edge_cnt, edge_cnt
  */
 std::tuple<double, double, double, int, int> BAError(
- const double* xvec, const std::vector<VecVector3d> &PointClouds, const std::vector<std::unique_ptr<KDTree3D>> &KdTrees,
+ const g2o::Vector7 &xvec, const std::vector<VecVector3d> &PointClouds, const std::vector<std::unique_ptr<KDTree3D>> &KdTrees,
  const std::vector<Eigen::Isometry3d> &vTwl, const std::unordered_map<int,int> &KFIdMap,
  const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames, const IBAGlobalParams &iba_params,
  const bool &multiprocessing=false, const bool &verborse=false)
@@ -188,7 +197,7 @@ std::tuple<double, double, double, int, int> BAError(
     Eigen::Matrix3d rotation;
     Eigen::Vector3d translation;
     double scale;
-    std::tie(rotation, translation, scale) = Sim3Exp<double>(xvec);
+    std::tie(rotation, translation, scale) = Sim3Exp<double>(xvec.data());
     Eigen::Isometry3d Tcl(Eigen::Isometry3d::Identity());
     Tcl.rotate(rotation);
     Tcl.pretranslate(translation);
@@ -329,11 +338,11 @@ std::tuple<double, double, double, int, int> BAError(
             }
         }
     }
-    if(valid_cnt_3d_2d == 0 && iba_params.err_weight[0] > 1e-10)
+    if(valid_cnt_3d_2d==0 && iba_params.err_weight[0] > 1e-10)
         corr_3d_2d_err = std::numeric_limits<double>::max();
     else
         corr_3d_2d_err /= valid_cnt_3d_2d;
-    if(valid_cnt_3d_3d == 0 && iba_params.err_weight[1] > 1e-10)
+    if(valid_cnt_3d_3d==0 && iba_params.err_weight[1] > 1e-10)
         corr_3d_3d_err = std::numeric_limits<double>::max();
     else
         corr_3d_3d_err /= valid_cnt_3d_3d;
@@ -345,66 +354,7 @@ std::tuple<double, double, double, int, int> BAError(
     return {corr_3d_2d_err, corr_3d_3d_err, Cval, valid_cnt_3d_2d, cnt_3d_2d};
 }
 
-class BALoss: public NOMAD::Evaluator
-{
-public:
-    BALoss(const std::shared_ptr<NOMAD::EvalParameters>& evalParams, const NOMAD::EvalType & evalType,
-    const std::vector<Eigen::Isometry3d>* _PointCloudPoses, const std::vector<VecVector3d>* _PointClouds,
-    const std::unordered_map<int,int>* _KFIdMap, const std::vector<ORB_SLAM2::KeyFrame*>* _KeyFrames, 
-    const IBAGlobalParams* _iba_params,
-    const std::vector<std::pair<std::string, std::vector<double>> >& SpecialPoints):
-        NOMAD::Evaluator(evalParams, evalType)
-        {
-            PointCloudPoses = _PointCloudPoses;
-            PointClouds = _PointClouds;
-            KeyFrames = _KeyFrames;
-            KFIdMap = _KFIdMap;
-            iba_params = _iba_params;
-            std::printf("Building %ld KdTrees for PointClouds.\n", PointClouds->size());
-            kdtree_list.resize(PointClouds->size());
-            #pragma omp parallel for schedule(static)
-            for(std::size_t i = 0; i < PointClouds->size(); ++ i)
-            {
-                kdtree_list[i] = std::make_unique<KDTree3D>(3, PointClouds->at(i), iba_params->kdtree3d_max_leaf_size);   
-            }
-            std::printf("Evaluating %ld special points.\n", SpecialPoints.size());
-            for(auto &x:SpecialPoints){
-                double f1val, f2val ,Cval;
-                int valid_edge_cnt, edge_cnt;
-                std::tie(f1val, f2val, Cval, valid_edge_cnt, edge_cnt) = BAError(x.second.data(), *PointClouds, kdtree_list, *PointCloudPoses, *KFIdMap, *KeyFrames, *iba_params, true, true);
-                std::printf("Special Point %s : f1val: %lf, f2val:%lf, Cval:%lf, edge: %d, valid: %d\n", x.first.c_str(), f1val, f2val, Cval, edge_cnt, valid_edge_cnt);
-            }
-        }
-    ~BALoss(){}
-    bool eval_x(NOMAD::EvalPoint &x, const NOMAD::Double &hMax, bool &countEval) const override
-    {
-        double f1val = 0, f2val = 0, Cval = 0; // total error
-        int edge_cnt = 0;
-        int valid_edge_cnt = 0;
-        double xvec[7];
-        for(int i = 0; i < 7; ++i)
-            xvec[i] = x[i].todouble();
-        std::tie(f1val, f2val, Cval, valid_edge_cnt, edge_cnt) = BAError(xvec, *PointClouds, kdtree_list, *PointCloudPoses, *KFIdMap, *KeyFrames, *iba_params);
-        NOMAD::Double f = f1val * iba_params->err_weight[0] + f2val * iba_params->err_weight[1];
-        NOMAD::Double C1 = Cval - iba_params->he_threshold, C2 = -Cval - iba_params->he_threshold;  // |Cval| <= he_threshold
-        NOMAD::Double C3 = iba_params->valid_rate - static_cast<double>(valid_edge_cnt) / (edge_cnt+1);
-        std::string bbo = f.tostring();
-        bbo += " " + C1.tostring();
-        bbo += " " + C2.tostring();
-        bbo += " " + C3.tostring();
-        x.setBBO(bbo);
-        countEval = true;
-        return true;
-    }
 
-private:
-    const std::vector<VecVector3d>* PointClouds;
-    const std::vector<ORB_SLAM2::KeyFrame*>* KeyFrames;
-    const std::unordered_map<int,int>* KFIdMap;
-    const std::vector<Eigen::Isometry3d>* PointCloudPoses;
-    const IBAGlobalParams* iba_params;
-    std::vector<std::unique_ptr<KDTree3D>> kdtree_list;
-};
 
 int main(int argc, char** argv){
     if(argc < 2){
@@ -427,12 +377,7 @@ int main(int argc, char** argv){
     // IO Config
     const std::string TwcFile = base_dir + io_config["VOFile"].as<std::string>();
     const std::string TwlFile = base_dir + io_config["LOFile"].as<std::string>();
-    const std::string resFile = base_dir + io_config["ResFile"].as<std::string>();
     const std::string KyeFrameIdFile = base_dir + io_config["VOIdFile"].as<std::string>();
-    const std::string initSim3File = base_dir + io_config["init_sim3"].as<std::string>();
-    const std::string gtSim3File = base_dir + io_config["gt_sim3"].as<std::string>();
-    assert(file_exist(initSim3File));
-    assert(file_exist(gtSim3File));
     // ORB Config
     const std::string ORBVocFile = orb_config["Vocabulary"].as<std::string>();
     const std::string ORBCfgFile = orb_config["Config"].as<std::string>();
@@ -452,26 +397,17 @@ int main(int argc, char** argv){
     iba_params.norm_radius = runtime_config["norm_radius"].as<double>();
     iba_params.norm_reg_threshold = runtime_config["norm_reg_threshold"].as<double>();
     iba_params.min_diff_dist = runtime_config["min_diff_dist"].as<double>();
-    iba_params.he_threshold = runtime_config["he_threshold"].as<double>();
     iba_params.err_weight = runtime_config["err_weight"].as<std::vector<double>>();
-    iba_params.lb = runtime_config["lb"].as<std::vector<double>>();
-    iba_params.ub = runtime_config["ub"].as<std::vector<double>>();
     iba_params.PointCloudskip = io_config["PointCloudskip"].as<int>();
     iba_params.PointCloudOnlyPositiveX = io_config["PointCloudOnlyPositiveX"].as<bool>();
-    iba_params.max_bbeval = runtime_config["max_bbeval"].as<int>();
-    iba_params.valid_rate = runtime_config["valid_rate"].as<double>();
-    iba_params.verborse = runtime_config["verborse"].as<bool>();
     iba_params.use_plane = runtime_config["use_plane"].as<bool>();
-    bool use_cache = runtime_config["use_cache"].as<bool>();
-    bool use_vns = runtime_config["use_vns"].as<bool>();
-    int seed = runtime_config["seed"].as<int>();
-    const std::string NomadCacheFile = runtime_config["cacheFile"].as<std::string>();
-    const double min_mesh = runtime_config["min_mesh"].as<double>();
-    const std::vector<double> init_frame_size = runtime_config["init_frame"].as<std::vector<double>>();
-    std::vector<double> min_mesh_size(7, min_mesh);
+    iba_params.verborse = runtime_config["verborse"].as<bool>();
     YAML::Node FrameIdCfg = YAML::LoadFile(KyeFrameIdFile);
     std::vector<int> vKFFrameId = FrameIdCfg["mnFrameId"].as<std::vector<int>>();
-    
+    const std::string input_file = io_config["init_sim3"].as<std::string>();
+    const std::string res_file = io_config["res_file"].as<std::string>();
+    const int precision = io_config["precision"].as<int>();
+    assert(file_exist(input_file));
     std::vector<Eigen::Isometry3d> RawPointCloudPoses, PointCloudPoses;
     ReadPoseList(TwlFile, RawPointCloudPoses);
     PointCloudPoses.reserve(vKFFrameId.size());
@@ -502,6 +438,13 @@ int main(int argc, char** argv){
                 std::printf("Read %0.2lf %% PointClouds\n", 100.0*numFiles/vKFFrameId.size());
         }
     }
+    std::vector<std::unique_ptr<KDTree3D>> kdtree_list;
+    kdtree_list.resize(PointClouds.size());
+    #pragma omp parallel for schedule(static)
+    for(std::size_t i = 0; i < PointClouds.size(); ++ i)
+    {
+        kdtree_list[i] = std::make_unique<KDTree3D>(3, PointClouds.at(i), iba_params.kdtree3d_max_leaf_size);   
+    }
     ORB_SLAM2::System orb_slam(ORBVocFile, ORBCfgFile, ORB_SLAM2::System::MONOCULAR, false);
     orb_slam.Shutdown(); // Do not need any ORB running threads
     orb_slam.RestoreSystemFromFile(ORBKeyFrameDir, ORBMapFile);
@@ -511,102 +454,24 @@ int main(int argc, char** argv){
     KFIdMap.reserve(KeyFrames.size());
     for(std::size_t i = 0; i < KeyFrames.size(); ++i)
         KFIdMap.insert(std::make_pair(KeyFrames[i]->mnId, i));
-    Eigen::Matrix4d rigid;
-    double scale;
-    std::tie(rigid, scale) = readSim3(initSim3File);
-    std::cout << "initial Result: " << std::endl;
-    std::cout << "Rotation:\n" << rigid.topLeftCorner(3, 3) << std::endl;
-    std::cout << "Translation: " << rigid.topRightCorner(3, 1).transpose() << std::endl;
-    std::cout << "Scale: " << scale << std::endl;
-    g2o::SE3Quat quat(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1));
-    g2o::Vector7 offset;
-    offset.head<6>() = quat.log();
-    offset(6) = scale;
-    std::tie(rigid, scale) = readSim3(gtSim3File);
-    std::cout << "GT Result: " << std::endl;
-    std::cout << "Rotation:\n" << rigid.topLeftCorner(3, 3) << std::endl;
-    std::cout << "Translation: " << rigid.topRightCorner(3, 1).transpose() << std::endl;
-    std::cout << "Scale: " << scale << std::endl;
-    g2o::SE3Quat gt_quat(rigid.topLeftCorner(3, 3), rigid.topRightCorner(3, 1));
-    g2o::Vector7 gtlog;
-    gtlog.head<6>() = gt_quat.log();
-    gtlog(6) = scale;
-    std::vector<double> x0(offset.data(), offset.data() + offset.size());
-    std::vector<double> gtx0(gtlog.data(), gtlog.data() + gtlog.size());
-    g2o::Vector7 range_lb(iba_params.lb.data());
-    g2o::Vector7 range_ub(iba_params.ub.data());
-    range_lb = offset + range_lb;
-    range_ub = offset + range_ub;
-    std::cout << "NLopt x0:" << offset.transpose() << std::endl;
-    std::cout << "gt:" << gtlog.transpose() << std::endl;
-    std::cout << "NLopt lb: " << range_lb.transpose() << std::endl;
-    std::cout << "NLopt ub: " << range_ub.transpose() << std::endl;
-    std::vector<double> lb(range_lb.data(), range_lb.data() + range_lb.size());
-    std::vector<double> ub(range_ub.data(), range_ub.data() + range_ub.size());
-    std::vector<std::pair<std::string, std::vector<double>>> special_points;
-    special_points.reserve(4);
-    special_points.push_back(std::make_pair("x0",x0));
-    special_points.push_back(std::make_pair("gt",gtx0));
-    special_points.push_back(std::make_pair("lb",lb));
-    special_points.push_back(std::make_pair("ub",ub));
-    // Set NOMAD Parameters
-    auto nomad_params = std::make_shared<NOMAD::AllParameters>();
-    auto nomad_type = NOMAD::EvalType::BB;
-    nomad_params->set_MAX_BB_EVAL(iba_params.max_bbeval);
-    nomad_params->set_DIMENSION(7);
-    NOMAD::BBOutputTypeList bbOutputTypes;
-    bbOutputTypes.push_back(NOMAD::BBOutputType::OBJ);
-    bbOutputTypes.push_back(NOMAD::BBOutputType::PB); // Relaxible Constraint |he_err| < delta
-    bbOutputTypes.push_back(NOMAD::BBOutputType::PB); // Relaxible Constraint
-    bbOutputTypes.push_back(NOMAD::BBOutputType::PB); // Corr Valid Rate > threshold
-    nomad_params->set_BB_OUTPUT_TYPE(bbOutputTypes);
-    NOMAD::ArrayOfDouble nomad_lb(lb), nomad_ub(ub);
-    nomad_params->set_LOWER_BOUND(nomad_lb);
-    nomad_params->set_UPPER_BOUND(nomad_ub);
-    NOMAD::Point nomad_x0(x0); NOMAD::Point nomad_gtx0(gtx0);
-    nomad_params->set_X0(nomad_x0);
-    nomad_params->setAttributeValue("DISPLAY_STATS", NOMAD::ArrayOfString("BBE ( SOL ) BBO"));
-    nomad_params->set_SEED(seed);
-    if(use_cache)
-        nomad_params->setAttributeValue("CACHE_FILE", NomadCacheFile);
-    NOMAD::ArrayOfDouble nomad_mesh_minsize(min_mesh_size), nomad_frame_init(init_frame_size);
-    nomad_params->set_INITIAL_POLL_SIZE(nomad_frame_init);
-    nomad_params->set_MIN_MESH_SIZE(nomad_mesh_minsize);
-    nomad_params->setAttributeValue("VNS_MADS_SEARCH",use_vns);
-    nomad_params->setAttributeValue("DIRECTION_TYPE",NOMAD::DirectionType::ORTHO_2N);
-    nomad_params->checkAndComply();
-    auto ev = std::make_unique<BALoss>(nomad_params->getEvalParams(), nomad_type,
-        &PointCloudPoses, &PointClouds, &KFIdMap, &KeyFrames, &iba_params, special_points);
-    NOMAD::MainStep nomad_main_step;
-    nomad_main_step.setAllParameters(nomad_params);
-    nomad_main_step.setEvaluator(std::move(ev));
-    nomad_main_step.start();
-    std::cout << "NOMAD Start\n";
-    nomad_main_step.run();
-    nomad_main_step.end();
-    std::vector<NOMAD::EvalPoint> evalPointFeasList;
-    auto nbFeas = NOMAD::CacheBase::getInstance()->findBestFeas(evalPointFeasList, NOMAD::Point(), 
-        nomad_type, NOMAD::ComputeType::STANDARD, nullptr);
-    NOMAD::EvalPoint evalPointFeas;
-    if (nbFeas > 0)
+    std::vector<g2o::Vector7> exSim3List;
+    ReadSim3List(input_file, exSim3List);
+    std::ofstream ofs(res_file); // ASCII
+    ofs << std::setprecision(precision);
+    for(std::size_t i = 0; i < exSim3List.size(); ++i)
     {
-        evalPointFeas = evalPointFeasList[0];
+        auto const &sim3log = exSim3List[i];
+        double f1, f2, C;
+        int cnt, valid_cnt;
+        std::tie(f1,f2, C,valid_cnt,cnt) = BAError(sim3log, PointClouds, kdtree_list, PointCloudPoses, KFIdMap,
+            KeyFrames, iba_params, true, false);
+        double valid_rate = static_cast<double>(valid_cnt)/cnt;
+        ofs << f1 << " " << f2 << " " << C << " " << valid_rate;
+        if(i != exSim3List.size()-1)
+            ofs << "\n";
+        std::printf("%ld | %ld f1: %lf, f2: %lf, C: %lf, valid: %lf %%\n", i+1, exSim3List.size(), f1, f2, C, valid_rate*100.);
     }
-    g2o::Vector7 res_log;
-    for(int i = 0; i < 7; ++i)
-        res_log[i] = evalPointFeas[i].todouble();
-    Eigen::Matrix3d optRotation;
-    Eigen::Vector3d optTranslation;
-    double optScale;
-    std::tie(optRotation, optTranslation, optScale) = Sim3Exp<double>(res_log.data());
-    rigid.setIdentity();
-    rigid.topLeftCorner(3,3) = optRotation;
-    rigid.topRightCorner(3,1) = optTranslation;
-    std::cout << "Optimized Result: " << std::endl;
-    std::cout << "Rotation:\n" << optRotation << std::endl;
-    std::cout << "Translation: " << optTranslation.transpose() << std::endl;
-    std::cout << "Scale: " << optScale << std::endl;
-    writeSim3(resFile, rigid, optScale);
+    ofs.close();
     return 0;
 
 }
