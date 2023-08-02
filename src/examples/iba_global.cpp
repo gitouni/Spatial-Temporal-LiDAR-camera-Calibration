@@ -573,7 +573,7 @@ int main(int argc, char** argv){
     nomad_params->set_INITIAL_POLL_SIZE(nomad_frame_init);
     nomad_params->set_MIN_MESH_SIZE(nomad_mesh_minsize);
     nomad_params->setAttributeValue("VNS_MADS_SEARCH",use_vns);
-    nomad_params->setAttributeValue("DIRECTION_TYPE",NOMAD::DirectionType::ORTHO_2N);
+    nomad_params->setAttributeValue("DIRECTION_TYPE",NOMAD::DirectionType::ORTHO_NP1_QUAD);
     nomad_params->checkAndComply();
     auto ev = std::make_unique<BALoss>(nomad_params->getEvalParams(), nomad_type,
         &PointCloudPoses, &PointClouds, &KFIdMap, &KeyFrames, &iba_params, special_points);
@@ -607,6 +607,7 @@ int main(int argc, char** argv){
     std::cout << "Translation: " << optTranslation.transpose() << std::endl;
     std::cout << "Scale: " << optScale << std::endl;
     writeSim3(resFile, rigid, optScale);
+    std::printf("Result saved to %s\n",resFile.c_str());
     return 0;
 
 }
