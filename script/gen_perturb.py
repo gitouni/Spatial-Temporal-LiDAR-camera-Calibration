@@ -7,15 +7,15 @@ os.chdir(os.path.abspath(os.path.dirname(__file__)))
 
 def options():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base_sim3",type=str,default="../KITTI-04/calib_res/gt_calib_04.txt")
+    parser.add_argument("--base_sim3",type=str,default="../KITTI-07/calib_res/gt_calib_07.txt")
     parser.add_argument("--rot_step",type=float,default=1)
     parser.add_argument("--rot_range",type=float,default=10)
     parser.add_argument("--tsl_step",type=float,default=0.01)
-    parser.add_argument("--tsl_range",type=float,default=0.1)
+    parser.add_argument("--tsl_range",type=float,default=0.3)
     parser.add_argument("--scale_step",type=float,default=0.1)
     parser.add_argument("--scale_range",type=float,default=1)
-    parser.add_argument("--save_sim3",type=str,default="../demo/sim3_test_04.txt")
-    parser.add_argument("--log_sim3",type=str,default="../demo/sim3_log_04.txt")
+    parser.add_argument("--save_sim3",type=str,default="../demo/sim3_test_07.txt")
+    parser.add_argument("--log_sim3",type=str,default="../demo/sim3_log_07.txt")
     return parser.parse_args()
 
 if __name__ == "__main__":
