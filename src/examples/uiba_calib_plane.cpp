@@ -105,19 +105,19 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         FindProjectCorrespondences(points, pKF, iba_params.kdtree2d_max_leaf_size, iba_params.max_pixel_dist, corrset);
         if(corrset.size() < iba_params.num_min_corr)
             continue;
-        std::vector<ORB_SLAM2::KeyFrame*> pConvisKFs;
-        if(iba_params.num_best_convis > 0)
-            pConvisKFs = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);  // for debug
+        std::vector<ORB_SLAM2::KeyFrame*> pCovisKFs;
+        if(iba_params.num_best_covis > 0)
+            pCovisKFs = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_covis);  // for debug
         else
         {
-            pConvisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
+            pCovisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
         }
         std::vector<std::map<int, int>> KptMapList; // Keypoint-Keypoint Corr
-        std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
-        KptMapList.reserve(pConvisKFs.size());
-        relPoseList.reserve(pConvisKFs.size());
+        std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Covisible KeyFrames
+        KptMapList.reserve(pCovisKFs.size());
+        relPoseList.reserve(pCovisKFs.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
-        for(auto pKFConv:pConvisKFs)
+        for(auto pKFConv:pCovisKFs)
         {
             auto KptMap = pKF->GetMatchedKptIds(pKFConv);
             cv::Mat relPose = pKFConv->GetPose() * invRefPose;  // Transfer from c1 coordinate to c2 coordinate
@@ -145,14 +145,14 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             std::vector<double*> param_blocks;
             param_blocks.push_back(param_list[0].data()); // extrinsic log
             param_blocks.push_back(param_list[Fi+1].data()); // Reference Pose
-            for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
-                auto pKFConv = pConvisKFs[pKFConvi];
+            for(std::size_t pKFConvi = 0; pKFConvi < pCovisKFs.size(); ++pKFConvi){
+                auto pKFConv = pCovisKFs[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)
                     continue;
-                const int convis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a convisible KeyFrame
-                double u1 = pKFConv->mvKeysUn[convis_idx].pt.x;
-                double v1 = pKFConv->mvKeysUn[convis_idx].pt.y;
+                const int covis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a covisible KeyFrame
+                double u1 = pKFConv->mvKeysUn[covis_idx].pt.x;
+                double v1 = pKFConv->mvKeysUn[covis_idx].pt.y;
                 Eigen::Matrix4d relPose = relPoseList[pKFConvi];  // Twc2 * inv(Twc1)
                 u1_list.push_back(u1);
                 v1_list.push_back(v1);

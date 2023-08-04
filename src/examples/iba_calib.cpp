@@ -32,7 +32,7 @@ public:
     IBAParams(){};
 public:
     double max_pixel_dist = 2.;  // maximum distance to build correspondence between projected LiDAR points and Keypoints
-    int min_covis_weight = 200;  // minmum convisibility weight between two KeyFrames for optimization
+    int min_covis_weight = 200;  // minmum covisibility weight between two KeyFrames for optimization
     int kdtree2d_max_leaf_size = 10;  // maximum leaf size of the KDTree for projectedPoints-Keypoints correspondence Search
     int kdtree3d_max_leaf_size = 30;  // maximum leaf size of the KDTree for neighborhood LiDAR points Search
     double neigh_radius = 0.6;  // build local manifold within this radius
@@ -190,13 +190,13 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
         for(const CorrType &corr:corrset)
             indices.push_back(corr.second);
         std::tie(normals, flags) = ExtractLocalManifold(points, indices, params.neigh_radius, params.kdtree3d_max_leaf_size, params.neigh_max_pts);
-        std::vector<ORB_SLAM2::KeyFrame*> pConvisKFs = pKF->GetCovisiblesByWeightSafe(params.min_covis_weight);  // for debug
-        std::vector<std::map<int, int>> KptMapList; // KeyPoints Correspondence between Reference KF and Convisible KeyFrame
-        std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrame
-        KptMapList.reserve(pConvisKFs.size());
-        relPoseList.reserve(pConvisKFs.size());
+        std::vector<ORB_SLAM2::KeyFrame*> pCovisKFs = pKF->GetCovisiblesByWeightSafe(params.min_covis_weight);  // for debug
+        std::vector<std::map<int, int>> KptMapList; // KeyPoints Correspondence between Reference KF and Covisible KeyFrame
+        std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Covisible KeyFrame
+        KptMapList.reserve(pCovisKFs.size());
+        relPoseList.reserve(pCovisKFs.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
-        for(auto pKFConv:pConvisKFs)
+        for(auto pKFConv:pCovisKFs)
         {
             auto KptMap = pKF->GetMatchedKptIds(pKFConv);
             cv::Mat relPose = pKFConv->GetPose() * invRefPose;  // Transfer from c1 coordinate to c2 coordinate
@@ -214,14 +214,14 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
             // transform 3d point back to LiDAR coordinate
             Eigen::Vector3d p0 = initSE3.inverse() * points[point3d_idx];  // cooresponding point (LiDAR coord)
             Eigen::Vector3d n0 = initSE3_4x4.topLeftCorner(3, 3).transpose() * normals[sub_idx];  // cooresponding point normal (LiDAR coord)
-            for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
-                auto pKFConv = pConvisKFs[pKFConvi];
+            for(std::size_t pKFConvi = 0; pKFConvi < pCovisKFs.size(); ++pKFConvi){
+                auto pKFConv = pCovisKFs[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)
                     continue;
-                const int convis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a convisible KeyFrame
-                double u1 = pKFConv->mvKeysUn[convis_idx].pt.x;
-                double v1 = pKFConv->mvKeysUn[convis_idx].pt.y;
+                const int covis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a covisible KeyFrame
+                double u1 = pKFConv->mvKeysUn[covis_idx].pt.x;
+                double v1 = pKFConv->mvKeysUn[covis_idx].pt.y;
                 Eigen::Matrix4d relPose = relPoseList[pKFConvi];  // Twc2 * inv(Twc1)
                 // IBATestEdge* e = new IBATestEdge(pKF->fx, pKF->fy, pKF->cx, pKF->cy, u0, v0, u1, v1, p0, 
                 //     relPose.topLeftCorner(3, 3), relPose.topRightCorner(3, 1));

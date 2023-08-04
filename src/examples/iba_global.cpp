@@ -4,10 +4,8 @@
 #include "io_tools.h"
 #include "kitti_tools.h"
 #include "pointcloud.h"
-#include <mutex>
 #include <functional>
 #include <limits>
-#include <mutex>
 #include <yaml-cpp/yaml.h>
 #include "orb_slam/include/System.h"
 #include "orb_slam/include/KeyFrame.h"
@@ -15,7 +13,6 @@
 #include "Nomad/nomad.hpp"
 #include "Cache/CacheBase.hpp"
 #include <unordered_map>
-
 
 typedef std::uint32_t IndexType; // other types cause error, why?
 typedef std::vector<IndexType> VecIndex;
@@ -32,7 +29,7 @@ public:
     double max_pixel_dist = 1.5;
     int kdtree2d_max_leaf_size = 10;
     int kdtree3d_max_leaf_size = 30;
-    int num_best_convis = 1;
+    int num_best_covis = 1;
     int min_covis_weight = 150;
     double corr_3d_2d_threshold = 40.;
     double corr_3d_3d_threshold = 5.;
@@ -166,7 +163,7 @@ std::tuple<bool, double> ComputeAlignmentDist(const KDTree3D* kdtree, const VecV
  * @param KeyFrames 
  * @param iba_params 
  * @param multiprocessing 
- * @return std::tuple<double, double, int, int> fobj, C, valid_edge_cnt, edge_cnt
+ * @return std::tuple<double, double, ,double, int, int> f1, f2, C, valid_edge_cnt, edge_cnt
  */
 std::tuple<double, double, double, int, int> BAError(
  const double* xvec, const std::vector<VecVector3d> &PointClouds, const std::vector<std::unique_ptr<KDTree3D>> &KdTrees,
@@ -254,15 +251,15 @@ std::tuple<double, double, double, int, int> BAError(
             }
         }
         
-        std::vector<ORB_SLAM2::KeyFrame*> pConvisKFs;
-        if(iba_params.num_best_convis > 0)
-            pConvisKFs = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);
+        std::vector<ORB_SLAM2::KeyFrame*> pCovisKFs;
+        if(iba_params.num_best_covis > 0)
+            pCovisKFs = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_covis);
         else
-            pConvisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);  
+            pCovisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);  
         std::vector<std::unordered_map<int, int>> KptMapList; // Keypoint-Keypoint Corr
-        std::vector<Eigen::Matrix4d> relCVPoseList; // relCVPose From Reference to Convisible KeyFrames
-        KptMapList.reserve(pConvisKFs.size());
-        relCVPoseList.reserve(pConvisKFs.size());
+        std::vector<Eigen::Matrix4d> relCVPoseList; // relCVPose From Reference to Covisible KeyFrames
+        KptMapList.reserve(pCovisKFs.size());
+        relCVPoseList.reserve(pCovisKFs.size());
         if(Fi < KeyFrames.size() - 1)
         {
             Eigen::Matrix4d Tc;
@@ -276,7 +273,7 @@ std::tuple<double, double, double, int, int> BAError(
             Cval += (c1_log - c2_log).norm();
             Ccnt++;
         }
-        for(auto pKFConv:pConvisKFs)
+        for(auto pKFConv:pCovisKFs)
         {
             auto KptMap = pKF->GetUordMatchedKptIds(pKFConv);
             cv::Mat relCVPose = pKFConv->GetPose() * InvRefCVPose;  // Transfer from c1 coordinate to c2 coordinate
@@ -300,14 +297,14 @@ std::tuple<double, double, double, int, int> BAError(
             const double fx = pKF->fx, fy = pKF->fy, cx = pKF->cx, cy = pKF->cy;
             const double H = pKF->mnMaxY, W = pKF->mnMaxX;
             // transform 3d point back to LiDAR coordinate
-            for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
-                auto pKFConv = pConvisKFs[pKFConvi];
+            for(std::size_t pKFConvi = 0; pKFConvi < pCovisKFs.size(); ++pKFConvi){
+                auto pKFConv = pCovisKFs[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)
                     continue;
-                const int convis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a convisible KeyFrame
-                double u1 = pKFConv->mvKeysUn[convis_idx].pt.x;
-                double v1 = pKFConv->mvKeysUn[convis_idx].pt.y;
+                const int covis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a covisible KeyFrame
+                double u1 = pKFConv->mvKeysUn[covis_idx].pt.x;
+                double v1 = pKFConv->mvKeysUn[covis_idx].pt.y;
                 Eigen::Matrix4d relCVPose = relCVPoseList[pKFConvi];  // Twc2 * inv(Twc1)
                 Eigen::Vector3d p1 = relCVPose.topLeftCorner(3, 3) * p0 + relCVPose.topRightCorner(3, 1); // transform to covisible Keyframe coord
                 double obs_u1 = fx * p1[0]/p1[2] + cx;
@@ -441,7 +438,7 @@ int main(int argc, char** argv){
     const std::string ORBMapFile = orb_config["MapFile"].as<std::string>();
     // runtime config
     iba_params.max_pixel_dist = runtime_config["max_pixel_dist"].as<double>();
-    iba_params.num_best_convis = runtime_config["num_best_convis"].as<int>();
+    iba_params.num_best_covis = runtime_config["num_best_covis"].as<int>();
     iba_params.min_covis_weight = runtime_config["min_covis_weight"].as<int>();
     iba_params.kdtree2d_max_leaf_size = runtime_config["kdtree2d_max_leaf_size"].as<int>();
     iba_params.kdtree3d_max_leaf_size = runtime_config["kdtree3d_max_leaf_size"].as<int>();
@@ -462,9 +459,10 @@ int main(int argc, char** argv){
     iba_params.valid_rate = runtime_config["valid_rate"].as<double>();
     iba_params.verborse = runtime_config["verborse"].as<bool>();
     iba_params.use_plane = runtime_config["use_plane"].as<bool>();
-    bool use_cache = runtime_config["use_cache"].as<bool>();
-    bool use_vns = runtime_config["use_vns"].as<bool>();
-    int seed = runtime_config["seed"].as<int>();
+    const bool use_cache = runtime_config["use_cache"].as<bool>();
+    const bool use_vns = runtime_config["use_vns"].as<bool>();
+    const std::string direction_type = runtime_config["direction_type"].as<std::string>();
+    const int seed = runtime_config["seed"].as<int>();
     const std::string NomadCacheFile = runtime_config["cacheFile"].as<std::string>();
     const double min_mesh = runtime_config["min_mesh"].as<double>();
     const std::vector<double> init_frame_size = runtime_config["init_frame"].as<std::vector<double>>();
@@ -573,7 +571,14 @@ int main(int argc, char** argv){
     nomad_params->set_INITIAL_POLL_SIZE(nomad_frame_init);
     nomad_params->set_MIN_MESH_SIZE(nomad_mesh_minsize);
     nomad_params->setAttributeValue("VNS_MADS_SEARCH",use_vns);
-    nomad_params->setAttributeValue("DIRECTION_TYPE",NOMAD::DirectionType::ORTHO_NP1_QUAD);
+    if(direction_type=="N+1 QUAD")
+        nomad_params->setAttributeValue("DIRECTION_TYPE",NOMAD::DirectionType::ORTHO_NP1_QUAD);
+    else if(direction_type=="2N")
+        nomad_params->setAttributeValue("DIRECTION_TYPE",NOMAD::DirectionType::ORTHO_2N);
+    else if(direction_type=="N+1 NEG")
+        nomad_params->setAttributeValue("DIRECTION_TYPE",NOMAD::DirectionType::ORTHO_NP1_NEG);
+    else
+        std::printf("\033[33;1mUnknown Direction Type:%s, set to the default:ORTHO_NP1_QUAD\033[0m",direction_type.c_str());
     nomad_params->checkAndComply();
     auto ev = std::make_unique<BALoss>(nomad_params->getEvalParams(), nomad_type,
         &PointCloudPoses, &PointClouds, &KFIdMap, &KeyFrames, &iba_params, special_points);

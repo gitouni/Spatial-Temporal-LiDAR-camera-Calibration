@@ -58,18 +58,18 @@ CorrSet FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::K
 }
 
 /**
- * @brief Find the Best Lidar Query Point to satisfy minimum reprojection error among all convisible KeyFrames.
+ * @brief Find the Best Lidar Query Point to satisfy minimum reprojection error among all covisible KeyFrames.
  * 
  * @param points LiDARPoints (Camera Coord)
  * @param pKF Reference KF pointer
- * @param pConvisKFs Vector of its Convisible KF pointers
- * @param KptMapList Vector of Keypoint-Keypoint mapping through reference KF and convisible KFs
- * @param relPoseList Vector of RelPoses with scale from reference KF to convisible KF
+ * @param pCovisKFs Vector of its Covisible KF pointers
+ * @param KptMapList Vector of Keypoint-Keypoint mapping through reference KF and covisible KFs
+ * @param relPoseList Vector of RelPoses with scale from reference KF to covisible KF
  * @param leaf_size minimum leaf size of 2d-kdtree
  * @param max_corr_dist maximum reprojection distance between KeyPoint and Projected Lidar points
  * @return CorrSet 
  */
-CorrSet FindConvisProjCorr(const VecVector3d &points, const ORB_SLAM2::KeyFrame* pKF, const std::vector<ORB_SLAM2::KeyFrame*> &pConvisKFs,
+CorrSet FindCovisProjCorr(const VecVector3d &points, const ORB_SLAM2::KeyFrame* pKF, const std::vector<ORB_SLAM2::KeyFrame*> &pCovisKFs,
   std::vector<std::unordered_map<int, int>> &KptMapList, std::vector<Eigen::Matrix4d> &relPoseList,
   const int &leaf_size, const double &max_corr_dist)
 {
@@ -111,7 +111,7 @@ CorrSet FindConvisProjCorr(const VecVector3d &points, const ORB_SLAM2::KeyFrame*
         std::vector<nanoflann::ResultItem<IndexType, double>> indices_dists;
         nanoflann::RadiusResultSet<double, IndexType> resultSet(max_corr_dist, indices_dists);
         kdtree->index->findNeighbors(resultSet, KeyPoint.data(), nanoflann::SearchParameters());
-        if(indices_dists.size() > 0)  // search the LiDAR point with minimum comprehensive reprojection through all convisible KFs and reference KF
+        if(indices_dists.size() > 0)  // search the LiDAR point with minimum comprehensive reprojection through all covisible KFs and reference KF
         {
             double min_err = std::numeric_limits<double>::max();
             int min_query;
@@ -119,11 +119,11 @@ CorrSet FindConvisProjCorr(const VecVector3d &points, const ORB_SLAM2::KeyFrame*
             {
                 double err = sqrt(res_item.second);
                 auto const &QueryPoint = points[ProjectIndex[res_item.first]];
-                for(std::size_t ConvisFi = 0; ConvisFi < pConvisKFs.size(); ++ConvisFi)
+                for(std::size_t CovisFi = 0; CovisFi < pCovisKFs.size(); ++CovisFi)
                 {
-                    auto const pCKF = pConvisKFs[ConvisFi];
-                    auto const &keypt = pCKF->mvKeysUn[KptMapList[ConvisFi][keypt_idx]].pt;
-                    Eigen::Vector3d projPoint = relPoseList[ConvisFi].topLeftCorner(3, 3) * QueryPoint + relPoseList[ConvisFi].topRightCorner(3, 1);
+                    auto const pCKF = pCovisKFs[CovisFi];
+                    auto const &keypt = pCKF->mvKeysUn[KptMapList[CovisFi][keypt_idx]].pt;
+                    Eigen::Vector3d projPoint = relPoseList[CovisFi].topLeftCorner(3, 3) * QueryPoint + relPoseList[CovisFi].topRightCorner(3, 1);
                     double obs_u1 = pKF->fx * projPoint.x() / projPoint.z() + pKF->cx;
                     double obs_v1 = pKF->fx * projPoint.y() / projPoint.z() + pKF->cy;
                     err += sqrt((obs_u1 - keypt.x) * (obs_u1 - keypt.x) + (obs_v1 - keypt.y) * (obs_v1 - keypt.y));
@@ -166,19 +166,19 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
         ORB_SLAM2::KeyFrame* pKF = KeyFrames[Fi];
         const double H = pKF->mnMaxY, W = pKF->mnMaxX;
         TransformPointCloud(PointClouds[Fi], points, initSE3);
-        std::vector<ORB_SLAM2::KeyFrame*> pConvisKFs;
-        if(iba_params.num_best_convis > 0)
-            pConvisKFs = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);  // for debug
+        std::vector<ORB_SLAM2::KeyFrame*> pCovisKFs;
+        if(iba_params.num_best_covis > 0)
+            pCovisKFs = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_covis);  // for debug
         else
         {
-            pConvisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
+            pCovisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);
         }
         std::vector<std::unordered_map<int, int>> KptMapList; // Keypoint-Keypoint Corr
-        std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
-        KptMapList.reserve(pConvisKFs.size());
-        relPoseList.reserve(pConvisKFs.size());
+        std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Covisible KeyFrames
+        KptMapList.reserve(pCovisKFs.size());
+        relPoseList.reserve(pCovisKFs.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
-        for(auto pKFConv:pConvisKFs)
+        for(auto pKFConv:pCovisKFs)
         {
             auto KptMap = pKF->GetUordMatchedKptIds(pKFConv);
             cv::Mat relPose = pKFConv->GetPose() * invRefPose;  // Transfer from c1 coordinate to c2 coordinate
@@ -242,14 +242,14 @@ void BuildProblem(const std::vector<VecVector3d> &PointClouds, const std::vector
             std::vector<double> u1_list, v1_list;
             std::vector<Eigen::Matrix3d> R_list;
             std::vector<Eigen::Vector3d> t_list;
-            for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
-                auto pKFConv = pConvisKFs[pKFConvi];
+            for(std::size_t pKFConvi = 0; pKFConvi < pCovisKFs.size(); ++pKFConvi){
+                auto pKFConv = pCovisKFs[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)
                     continue;
-                const int convis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a convisible KeyFrame
-                double u1 = pKFConv->mvKeysUn[convis_idx].pt.x;
-                double v1 = pKFConv->mvKeysUn[convis_idx].pt.y;
+                const int covis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a covisible KeyFrame
+                double u1 = pKFConv->mvKeysUn[covis_idx].pt.x;
+                double v1 = pKFConv->mvKeysUn[covis_idx].pt.y;
                 Eigen::Matrix4d relPose = relPoseList[pKFConvi];  // Twc2 * inv(Twc1)
                 u1_list.push_back(u1);
                 v1_list.push_back(v1);
@@ -356,7 +356,7 @@ int main(int argc, char** argv){
     // runtime config
     IBALocalParams iba_params;
     iba_params.max_pixel_dist = runtime_config["max_pixel_dist"].as<double>();
-    iba_params.num_best_convis = runtime_config["num_best_convis"].as<int>();
+    iba_params.num_best_covis = runtime_config["num_best_covis"].as<int>();
     iba_params.min_covis_weight = runtime_config["min_covis_weight"].as<int>();
     iba_params.kdtree2d_max_leaf_size = runtime_config["kdtree2d_max_leaf_size"].as<int>();
     iba_params.kdtree3d_max_leaf_size = runtime_config["kdtree3d_max_leaf_size"].as<int>();

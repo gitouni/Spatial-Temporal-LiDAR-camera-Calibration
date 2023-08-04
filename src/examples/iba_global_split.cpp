@@ -36,8 +36,10 @@ public:
     int min_covis_weight = 150;
     double corr_3d_2d_threshold = 40.;
     double corr_3d_3d_threshold = 5.;
-    double he_threshold = 0.05;
+    double he_rot_threshold = 0.01;
+    double he_tsl_threshold = 0.04;
     int norm_max_pts = 30;
+    int norm_min_pts = 5;
     double norm_radius = 0.6;
     double norm_reg_threshold = 0.04;
     double min_diff_dist = 0.01;
@@ -51,33 +53,16 @@ public:
     bool use_plane = true;
 };
 
-/**
- * @brief Use the Reprojected Pixels of MapPoints as KeyPoint Position,
- *  find best 2d correspondence between reprojected pointcloud and keypoints point-by-point
- * 
- * @param points PointCloud (Camera Coord)
- * @param pKF Current KeyFrame pointer
- * @param leaf_size maximum leaf size of the 2d-kdtree
- * @param max_corr_dist maximum distance threshold to accept a 2d-2d correspondence
- * @param corrset [keypoint_idx, lidarpoint_idx] (to be assigned)
- */
+
 void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyFrame* pKF,
     const int leaf_size, const double max_corr_dist, CorrSet &corrset)
 {
-    std::unordered_map<int, Eigen::Vector2d> vKeyUnEigen;
-    vKeyUnEigen.reserve(pKF->mmapMpt2Kpt.size());
-    Eigen::Matrix4d Pose;
-    cv::cv2eigen(pKF->GetPoseSafe(), Pose);
-    for(auto const &[pMapPoint,keypt_idx]:pKF->mmapMpt2Kpt)
+    VecVector2d vKeyUnEigen;
+    vKeyUnEigen.reserve(pKF->mvKeysUn.size());
+    for (auto &KeyUn:pKF->mvKeysUn)
     {
-        Eigen::Vector3d MapPointPose;
-        cv::cv2eigen(pMapPoint->GetWorldPos(), MapPointPose);
-        MapPointPose = Pose.topLeftCorner(3, 3) * MapPointPose + Pose.topRightCorner(3, 1);
-        Eigen::Vector2d Keypt;
-        Keypt.x() = pKF->fx * MapPointPose.x() / MapPointPose.z() + pKF->cx;
-        Keypt.y() = pKF->fy * MapPointPose.y() / MapPointPose.z() + pKF->cy;
-        vKeyUnEigen[keypt_idx] = std::move(Keypt);
-    }
+        vKeyUnEigen.push_back(Eigen::Vector2d(KeyUn.pt.x, KeyUn.pt.y));
+    }   
     const double fx = pKF->fx, fy = pKF->fy, cx = pKF->cx, cy = pKF->cy;
     const double H = pKF->mnMaxY, W = pKF->mnMaxX;
     VecVector2d ProjectPC;
@@ -88,7 +73,8 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
         if(point.z() > 0){
             double u = (fx * point.x() + cx * point.z())/point.z();
             double v = (fx * point.y() + cy * point.z())/point.z();
-            if (0 <= u && u < W && 0 <= v && v < H){
+            if (0 <= u && u < W && 0 <= v && v < H)
+            {
                 ProjectPC.push_back(Eigen::Vector2d(u, v));
                 ProjectIndex.push_back(i);
             }
@@ -98,16 +84,16 @@ void FindProjectCorrespondences(const VecVector3d &points, const ORB_SLAM2::KeyF
     if(ProjectPC.size() == 0)
         return;
     std::unique_ptr<KDTree2D> kdtree (new KDTree2D(2, ProjectPC, leaf_size));
-    for(auto const &[keypt_idx, KeyPoint]:vKeyUnEigen)
+    for(IndexType i = 0; i < vKeyUnEigen.size(); ++i)
     {
         const int num_closest = 1;
         std::vector<IndexType> indices(num_closest);
         std::vector<double> sq_dist(num_closest, std::numeric_limits<double>::max());
         nanoflann::KNNResultSet<double, IndexType> resultSet(num_closest);
         resultSet.init(indices.data(), sq_dist.data());
-        kdtree->index->findNeighbors(resultSet, KeyPoint.data(), nanoflann::SearchParameters());
+        kdtree->index->findNeighbors(resultSet, vKeyUnEigen[i].data(), nanoflann::SearchParameters(0.0F, true));
         if(resultSet.size() > 0 && sq_dist[0] <= max_corr_dist * max_corr_dist)
-            corrset.push_back(std::make_pair(keypt_idx, ProjectIndex[indices[0]]));
+            corrset.push_back(std::make_pair(i, ProjectIndex[indices[0]]));
     }
 }
 
@@ -180,9 +166,9 @@ std::tuple<bool, double> ComputeAlignmentDist(const KDTree3D* kdtree, const VecV
  * @param KeyFrames 
  * @param iba_params 
  * @param multiprocessing 
- * @return std::tuple<double, double, int, int> fobj, C, valid_edge_cnt, edge_cnt
+ * @return std::tuple<double, double, double, int, int> fobj, rotC, tslC, valid_edge_cnt, edge_cnt
  */
-std::tuple<double, double, double, int, int> BAError(
+std::tuple<double, double, double, double, int, int> BAError(
  const double* xvec, const std::vector<VecVector3d> &PointClouds, const std::vector<std::unique_ptr<KDTree3D>> &KdTrees,
  const std::vector<Eigen::Isometry3d> &vTwl, const std::unordered_map<int,int> &KFIdMap,
  const std::vector<ORB_SLAM2::KeyFrame*> &KeyFrames, const IBAGlobalParams &iba_params,
@@ -191,7 +177,8 @@ std::tuple<double, double, double, int, int> BAError(
     double corr_3d_2d_err = 0; // total error
     double corr_3d_3d_err = 0;
     // std::vector<double> corr_3d_3d_errlist;
-    double Cval = 0; // total HE constraint
+    double rotCval = 0; // total HE rotation constraint
+    double tslCval = 0; // total HE translation constraint
     double Ccnt = 0;
     int cnt_3d_2d = 0;
     int valid_cnt_3d_2d = 0;
@@ -250,8 +237,8 @@ std::tuple<double, double, double, int, int> BAError(
                 MapRefPose = Tcl.inverse() * MapRefPose;  // Pli
                 bool is_planefit;
                 double dist;
-                std::tie(is_planefit, dist) = ComputeAlignmentDist(KdTrees[Fi].get(), PL, MapRefPose,
-                    iba_params.norm_max_pts, iba_params.norm_radius, iba_params.norm_reg_threshold, iba_params.min_diff_dist, iba_params.use_plane);
+                std::tie(is_planefit, dist) = ComputeAlignmentDist(KdTrees[Fi].get(), PL, MapRefPose, iba_params.norm_max_pts,
+                 iba_params.norm_min_pts,iba_params.norm_radius, iba_params.norm_reg_threshold, iba_params.min_diff_dist, iba_params.use_plane);
                 #pragma omp critical
                 {
                     if(dist < iba_params.corr_3d_3d_threshold)
@@ -285,9 +272,10 @@ std::tuple<double, double, double, int, int> BAError(
             Eigen::Isometry3d Tl = vTwl[Fi+1].inverse() * vTwl[Fi];
             Eigen::Matrix4d C1 = (Tcl * Tl).matrix();
             Eigen::Matrix4d C2 = Tc * Tcl.matrix();
-            auto c1_log = SE3Log(C1.topLeftCorner(3, 3), C1.topRightCorner(3, 1));
-            auto c2_log = SE3Log(C2.topLeftCorner(3, 3), C2.topRightCorner(3, 1));
-            Cval += (c1_log - c2_log).norm();
+            auto C1rot_log = SO3Log(C1.topLeftCorner(3,3));
+            auto C2rot_log = SO3Log(C2.topLeftCorner(3,3));
+            rotCval += (C1rot_log - C2rot_log).norm(); // RMSE
+            tslCval += (C1.topRightCorner(3,1) - C2.topRightCorner(3,1)).norm(); // RMSE
             Ccnt++;
         }
         for(auto pKFConv:pCovisKFs)
@@ -346,12 +334,13 @@ std::tuple<double, double, double, int, int> BAError(
     assert(valid_cnt_3d_2d > 0 && valid_cnt_3d_3d > 0);
     corr_3d_2d_err /= valid_cnt_3d_2d;
     corr_3d_3d_err /= valid_cnt_3d_3d;
-    Cval /= Ccnt;
+    rotCval /= Ccnt;
+    tslCval /= Ccnt;
     // auto logger = LogEdges(corr_3d_3d_errlist);
     // print_map("corr3d_3d:",logger);
     if(verborse)
         std::printf("plane: %d, point: %d\n", valid_pl_3d_3d, valid_pt_3d_3d);
-    return {corr_3d_2d_err, corr_3d_3d_err, Cval, valid_cnt_3d_2d, cnt_3d_2d};
+    return {corr_3d_2d_err, corr_3d_3d_err, rotCval, tslCval, valid_cnt_3d_2d, cnt_3d_2d};
 }
 
 class BALoss: public NOMAD::Evaluator
@@ -378,27 +367,30 @@ public:
             }
             std::printf("Evaluating %ld special points.\n", SpecialPoints.size());
             for(auto &x:SpecialPoints){
-                double f1val, f2val ,Cval;
+                double f1val, f2val, rotCval, tslCval;
                 int valid_edge_cnt, edge_cnt;
-                std::tie(f1val, f2val, Cval, valid_edge_cnt, edge_cnt) = BAError(x.second.data(), *PointClouds, kdtree_list, *PointCloudPoses, *KFIdMap, *KeyFrames, *iba_params, true, true);
-                std::printf("Special Point %s : f1val: %lf, f2val:%lf, Cval:%lf, edge: %d, valid: %d\n", x.first.c_str(), f1val, f2val, Cval, edge_cnt, valid_edge_cnt);
+                std::tie(f1val, f2val, rotCval, tslCval, valid_edge_cnt, edge_cnt) = BAError(x.second.data(), *PointClouds, kdtree_list, *PointCloudPoses, *KFIdMap, *KeyFrames, *iba_params, true, true);
+                std::printf("Special Point %s : f1val: %lf, f2val:%lf, rotCval:%lf, tslCval:%lf, edge: %d, valid: %d\n", x.first.c_str(), f1val, f2val, rotCval, tslCval, edge_cnt, valid_edge_cnt);
             }
         }
     ~BALoss(){}
     bool eval_x(NOMAD::EvalPoint &x, const NOMAD::Double &hMax, bool &countEval) const override
     {
-        double f1val = 0, f2val = 0, Cval = 0; // total error
+        double f1val = 0, f2val = 0, rotCval = 0, tslCval; // total error
         int edge_cnt = 0;
         int valid_edge_cnt = 0;
         double xvec[7];
         for(int i = 0; i < 7; ++i)
             xvec[i] = x[i].todouble();
-        std::tie(f1val, f2val, Cval, valid_edge_cnt, edge_cnt) = BAError(xvec, *PointClouds, kdtree_list, *PointCloudPoses, *KFIdMap, *KeyFrames, *iba_params);
+        std::tie(f1val, f2val, rotCval, tslCval, valid_edge_cnt, edge_cnt) = BAError(xvec, *PointClouds, kdtree_list, *PointCloudPoses, *KFIdMap, *KeyFrames, *iba_params);
         NOMAD::Double f = f1val * iba_params->err_weight[0] + f2val * iba_params->err_weight[1];
-        NOMAD::Double C1 = Cval - iba_params->he_threshold, C2 = -Cval - iba_params->he_threshold;  // |Cval| <= he_threshold
+        NOMAD::Double C11 = rotCval - iba_params->he_rot_threshold, C12 = -rotCval - iba_params->he_rot_threshold;  // |Cval| <= he_threshold
+        NOMAD::Double C21 = tslCval - iba_params->he_tsl_threshold, C22 = -tslCval - iba_params->he_tsl_threshold;
         std::string bbo = f.tostring();
-        bbo += " " + C1.tostring();
-        bbo += " " + C2.tostring();
+        bbo += " " + C11.tostring();
+        bbo += " " + C12.tostring();
+        bbo += " " + C21.tostring();
+        bbo += " " + C22.tostring();
         x.setBBO(bbo);
         countEval = true;
         return true;
@@ -433,6 +425,7 @@ int main(int argc, char** argv){
     checkpath(base_dir);
     checkpath(pointcloud_dir);
     std::vector<std::string> RawPointCloudFiles, PointCloudFiles;
+    std::vector<ORB_SLAM2::KeyFrame*> KeyFrames;
     IBAGlobalParams iba_params;
     listdir(RawPointCloudFiles, pointcloud_dir);
     // IO Config
@@ -459,10 +452,12 @@ int main(int argc, char** argv){
     iba_params.corr_3d_2d_threshold = runtime_config["corr_3d_2d_threshold"].as<double>();
     iba_params.corr_3d_3d_threshold = runtime_config["corr_3d_3d_threshold"].as<double>();
     iba_params.norm_max_pts = runtime_config["norm_max_pts"].as<int>();
+    iba_params.norm_min_pts = runtime_config["norm_min_pts"].as<int>();
     iba_params.norm_radius = runtime_config["norm_radius"].as<double>();
     iba_params.norm_reg_threshold = runtime_config["norm_reg_threshold"].as<double>();
     iba_params.min_diff_dist = runtime_config["min_diff_dist"].as<double>();
-    iba_params.he_threshold = runtime_config["he_threshold"].as<double>();
+    iba_params.he_rot_threshold = runtime_config["he_rot_threshold"].as<double>();
+    iba_params.he_tsl_threshold = runtime_config["he_tsl_threshold"].as<double>();
     iba_params.err_weight = runtime_config["err_weight"].as<std::vector<double>>();
     iba_params.lb = runtime_config["lb"].as<std::vector<double>>();
     iba_params.ub = runtime_config["ub"].as<std::vector<double>>();
@@ -472,15 +467,15 @@ int main(int argc, char** argv){
     iba_params.verborse = runtime_config["verborse"].as<bool>();
     iba_params.use_plane = runtime_config["use_plane"].as<bool>();
     bool use_cache = runtime_config["use_cache"].as<bool>();
+    bool use_vns = runtime_config["use_vns"].as<bool>();
     int seed = runtime_config["seed"].as<int>();
     const std::string NomadCacheFile = runtime_config["cacheFile"].as<std::string>();
     const double min_mesh = runtime_config["min_mesh"].as<double>();
-    const std::vector<double> init_mesh_size = runtime_config["init_mesh"].as<std::vector<double>>();
+    const std::vector<double> init_frame_size = runtime_config["init_frame"].as<std::vector<double>>();
     std::vector<double> min_mesh_size(7, min_mesh);
     YAML::Node FrameIdCfg = YAML::LoadFile(KyeFrameIdFile);
     std::vector<int> vKFFrameId = FrameIdCfg["mnFrameId"].as<std::vector<int>>();
     
-    std::vector<VecVector3d> PointClouds;
     std::vector<Eigen::Isometry3d> RawPointCloudPoses, PointCloudPoses;
     ReadPoseList(TwlFile, RawPointCloudPoses);
     PointCloudPoses.reserve(vKFFrameId.size());
@@ -493,6 +488,7 @@ int main(int argc, char** argv){
         for(auto &KFId: vKFFrameId)
             PointCloudPoses.push_back(refPose * RawPointCloudPoses[KFId]);
     }
+    std::vector<VecVector3d> PointClouds;
     PointClouds.resize(vKFFrameId.size());
     
     int numFiles = 0;
@@ -513,7 +509,7 @@ int main(int argc, char** argv){
     ORB_SLAM2::System orb_slam(ORBVocFile, ORBCfgFile, ORB_SLAM2::System::MONOCULAR, false);
     orb_slam.Shutdown(); // Do not need any ORB running threads
     orb_slam.RestoreSystemFromFile(ORBKeyFrameDir, ORBMapFile);
-    auto KeyFrames = orb_slam.GetAllKeyFrames(true);
+    KeyFrames = orb_slam.GetAllKeyFrames(true);
     std::sort(KeyFrames.begin(), KeyFrames.end(), ORB_SLAM2::KeyFrame::lId);
     std::unordered_map<int, int> KFIdMap; // KeyFrame mnId -> FileIndex
     KFIdMap.reserve(KeyFrames.size());
@@ -564,7 +560,9 @@ int main(int argc, char** argv){
     nomad_params->set_DIMENSION(7);
     NOMAD::BBOutputTypeList bbOutputTypes;
     bbOutputTypes.push_back(NOMAD::BBOutputType::OBJ);
+    bbOutputTypes.push_back(NOMAD::BBOutputType::PB); // Relaxible Constraint |rot_he_err| < delta
     bbOutputTypes.push_back(NOMAD::BBOutputType::PB); // Relaxible Constraint
+    bbOutputTypes.push_back(NOMAD::BBOutputType::PB); // Relaxible Constraint |tsl_he_err| < delta
     bbOutputTypes.push_back(NOMAD::BBOutputType::PB); // Relaxible Constraint
     nomad_params->set_BB_OUTPUT_TYPE(bbOutputTypes);
     NOMAD::ArrayOfDouble nomad_lb(lb), nomad_ub(ub);
@@ -576,9 +574,11 @@ int main(int argc, char** argv){
     nomad_params->set_SEED(seed);
     if(use_cache)
         nomad_params->setAttributeValue("CACHE_FILE", NomadCacheFile);
-    NOMAD::ArrayOfDouble nomad_mesh_minsize(min_mesh_size), nomad_mesh_init(init_mesh_size);
-    nomad_params->set_INITIAL_MESH_SIZE(nomad_mesh_init);
+    NOMAD::ArrayOfDouble nomad_mesh_minsize(min_mesh_size), nomad_frame_init(init_frame_size);
+    nomad_params->set_INITIAL_POLL_SIZE(nomad_frame_init);
     nomad_params->set_MIN_MESH_SIZE(nomad_mesh_minsize);
+    nomad_params->setAttributeValue("VNS_MADS_SEARCH",use_vns);
+    nomad_params->setAttributeValue("DIRECTION_TYPE",NOMAD::DirectionType::ORTHO_2N);
     nomad_params->checkAndComply();
     auto ev = std::make_unique<BALoss>(nomad_params->getEvalParams(), nomad_type,
         &PointCloudPoses, &PointClouds, &KFIdMap, &KeyFrames, &iba_params, special_points);

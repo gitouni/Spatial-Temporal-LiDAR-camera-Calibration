@@ -116,14 +116,14 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
         FindProjectCorrespondences(points, pKF, params.kdtree2d_max_leaf_size, params.max_pixel_dist, corrset);
         if(corrset.size() < 50)
             continue;
-        std::vector<ORB_SLAM2::KeyFrame*> pConvisKFs = pKF->GetBestCovisibilityKeyFramesSafe(10);  // for debug
+        std::vector<ORB_SLAM2::KeyFrame*> pCovisKFs = pKF->GetBestCovisibilityKeyFramesSafe(10);  // for debug
         std::vector<std::map<int, int>> KptMapList; // Keypoint-Keypoint Corr
-        std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Convisible KeyFrames
+        std::vector<Eigen::Matrix4d> relPoseList; // RelPose From Reference to Covisible KeyFrames
         std::set<int> srcKptIndices;  // Matched Keypoints in the Reference KeyFrame
-        KptMapList.reserve(pConvisKFs.size());
-        relPoseList.reserve(pConvisKFs.size());
+        KptMapList.reserve(pCovisKFs.size());
+        relPoseList.reserve(pCovisKFs.size());
         const cv::Mat invRefPose = pKF->GetPoseInverseSafe();
-        for(auto pKFConv:pConvisKFs)
+        for(auto pKFConv:pCovisKFs)
         {
             auto KptMap = pKF->GetMatchedKptIds(pKFConv);
             for(auto &kpt_pair:KptMap)
@@ -145,14 +145,14 @@ void BuildOptimizer(const std::vector<std::string> &PointCloudFiles, std::vector
             double v0 = pKF->mvKeysUn[point2d_idx].pt.y;
             // transform 3d point back to LiDAR coordinate
             Eigen::Vector3d p0 = initSE3.inverse() * points[point3d_idx];  // cooresponding point (LiDAR coord)
-            for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
-                auto pKFConv = pConvisKFs[pKFConvi];
+            for(std::size_t pKFConvi = 0; pKFConvi < pCovisKFs.size(); ++pKFConvi){
+                auto pKFConv = pCovisKFs[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)
                     continue;
-                const int convis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a convisible KeyFrame
-                double u1 = pKFConv->mvKeysUn[convis_idx].pt.x;
-                double v1 = pKFConv->mvKeysUn[convis_idx].pt.y;
+                const int covis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a covisible KeyFrame
+                double u1 = pKFConv->mvKeysUn[covis_idx].pt.x;
+                double v1 = pKFConv->mvKeysUn[covis_idx].pt.y;
                 Eigen::Matrix4d relPose = relPoseList[pKFConvi];  // Twc2 * inv(Twc1)
                 IBATestEdge* e = new IBATestEdge(pKF->fx, pKF->fy, pKF->cx, pKF->cy,
                     u0, v0, u1, v1, p0, relPose.topLeftCorner(3, 3), relPose.topRightCorner(3, 1));

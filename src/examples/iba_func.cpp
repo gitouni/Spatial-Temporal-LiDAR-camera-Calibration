@@ -4,10 +4,8 @@
 #include "io_tools.h"
 #include "kitti_tools.h"
 #include "pointcloud.h"
-#include <mutex>
 #include <functional>
 #include <limits>
-#include <mutex>
 #include <yaml-cpp/yaml.h>
 #include "orb_slam/include/System.h"
 #include "orb_slam/include/KeyFrame.h"
@@ -46,7 +44,7 @@ public:
     double max_pixel_dist = 1.5;
     int kdtree2d_max_leaf_size = 10;
     int kdtree3d_max_leaf_size = 30;
-    int num_best_convis = 1;
+    int num_best_covis = 1;
     int min_covis_weight = 150;
     double corr_3d_2d_threshold = 40.;
     double corr_3d_3d_threshold = 5.;
@@ -263,15 +261,15 @@ std::tuple<double, double, double, int, int> BAError(
             }
         }
         
-        std::vector<ORB_SLAM2::KeyFrame*> pConvisKFs;
-        if(iba_params.num_best_convis > 0)
-            pConvisKFs = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_convis);
+        std::vector<ORB_SLAM2::KeyFrame*> pCovisKFs;
+        if(iba_params.num_best_covis > 0)
+            pCovisKFs = pKF->GetBestCovisibilityKeyFramesSafe(iba_params.num_best_covis);
         else
-            pConvisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);  
+            pCovisKFs = pKF->GetCovisiblesByWeightSafe(iba_params.min_covis_weight);  
         std::vector<std::unordered_map<int, int>> KptMapList; // Keypoint-Keypoint Corr
-        std::vector<Eigen::Matrix4d> relCVPoseList; // relCVPose From Reference to Convisible KeyFrames
-        KptMapList.reserve(pConvisKFs.size());
-        relCVPoseList.reserve(pConvisKFs.size());
+        std::vector<Eigen::Matrix4d> relCVPoseList; // relCVPose From Reference to Covisible KeyFrames
+        KptMapList.reserve(pCovisKFs.size());
+        relCVPoseList.reserve(pCovisKFs.size());
         if(Fi < KeyFrames.size() - 1)
         {
             Eigen::Matrix4d Tc;
@@ -285,7 +283,7 @@ std::tuple<double, double, double, int, int> BAError(
             Cval += (c1_log - c2_log).norm();
             Ccnt++;
         }
-        for(auto pKFConv:pConvisKFs)
+        for(auto pKFConv:pCovisKFs)
         {
             auto KptMap = pKF->GetUordMatchedKptIds(pKFConv);
             cv::Mat relCVPose = pKFConv->GetPose() * InvRefCVPose;  // Transfer from c1 coordinate to c2 coordinate
@@ -309,14 +307,14 @@ std::tuple<double, double, double, int, int> BAError(
             const double fx = pKF->fx, fy = pKF->fy, cx = pKF->cx, cy = pKF->cy;
             const double H = pKF->mnMaxY, W = pKF->mnMaxX;
             // transform 3d point back to LiDAR coordinate
-            for(std::size_t pKFConvi = 0; pKFConvi < pConvisKFs.size(); ++pKFConvi){
-                auto pKFConv = pConvisKFs[pKFConvi];
+            for(std::size_t pKFConvi = 0; pKFConvi < pCovisKFs.size(); ++pKFConvi){
+                auto pKFConv = pCovisKFs[pKFConvi];
                 // Skip if Cannot Find this 2d-3d matching map in Keypoint-to-Keypoint matching map
                 if(KptMapList[pKFConvi].count(point2d_idx) == 0)
                     continue;
-                const int convis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a convisible KeyFrame
-                double u1 = pKFConv->mvKeysUn[convis_idx].pt.x;
-                double v1 = pKFConv->mvKeysUn[convis_idx].pt.y;
+                const int covis_idx = KptMapList[pKFConvi][point2d_idx];  // corresponding KeyPoints idx in a covisible KeyFrame
+                double u1 = pKFConv->mvKeysUn[covis_idx].pt.x;
+                double v1 = pKFConv->mvKeysUn[covis_idx].pt.y;
                 Eigen::Matrix4d relCVPose = relCVPoseList[pKFConvi];  // Twc2 * inv(Twc1)
                 Eigen::Vector3d p1 = relCVPose.topLeftCorner(3, 3) * p0 + relCVPose.topRightCorner(3, 1); // transform to covisible Keyframe coord
                 double obs_u1 = fx * p1[0]/p1[2] + cx;
@@ -386,7 +384,7 @@ int main(int argc, char** argv){
     const std::string ORBMapFile = orb_config["MapFile"].as<std::string>();
     // runtime config
     iba_params.max_pixel_dist = runtime_config["max_pixel_dist"].as<double>();
-    iba_params.num_best_convis = runtime_config["num_best_convis"].as<int>();
+    iba_params.num_best_covis = runtime_config["num_best_covis"].as<int>();
     iba_params.min_covis_weight = runtime_config["min_covis_weight"].as<int>();
     iba_params.kdtree2d_max_leaf_size = runtime_config["kdtree2d_max_leaf_size"].as<int>();
     iba_params.kdtree3d_max_leaf_size = runtime_config["kdtree3d_max_leaf_size"].as<int>();
