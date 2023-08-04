@@ -22,7 +22,7 @@ public:
     IBAPlaneParams(){};
 public:
     double max_pixel_dist = 1.5;
-    int num_best_convis = 3;
+    int num_best_covis = 3;
     int min_covis_weight = 100;
     int num_min_corr = 30;
     int kdtree2d_max_leaf_size = 10;
@@ -44,7 +44,7 @@ public:
     IBAGPRParams(){};
 public:
     double max_pixel_dist = 1.5;
-    int num_best_convis = 3;
+    int num_best_covis = 3;
     int min_covis_weight = 150;
     int num_min_corr = 30;
     int kdtree2d_max_leaf_size = 10;
@@ -72,7 +72,7 @@ public:
     double corr_3d_2d_threshold = 40.;
     double corr_3d_3d_threshold = 5.;
     double he_threshold = 0.05;
-    int num_best_convis = 3;
+    int num_best_covis = 3;
     int min_covis_weight = 150;
     int num_min_corr = 30;
     int kdtree2d_max_leaf_size = 10;
@@ -112,7 +112,7 @@ public:
     double corr_3d_3d_threshold = 5.;
     double he_threshold = 0.05;
     int num_min_corr = 30;
-    int num_best_convis = 3;
+    int num_best_covis = 3;
     int min_covis_weight = 150;
     int kdtree2d_max_leaf_size = 10;
     int kdtree3d_max_leaf_size = 30;
@@ -951,7 +951,7 @@ public:
         cost_func->SetNumResiduals(2*_u1_list.size());
         cost_func->AddParameterBlock(7);
         for(int i = 0; i < _u1_list.size() + 1; ++ i)
-            cost_func->AddParameterBlock(6); // Add Pose (RefPose + Convisible Pose)
+            cost_func->AddParameterBlock(6); // Add Pose (RefPose + Covisible Pose)
         return cost_func;
     }
 private:
@@ -1110,7 +1110,7 @@ public:
         cost_func->SetNumResiduals(2*_u1_list.size());
         cost_func->AddParameterBlock(7);
         for(int i = 0; i < _u1_list.size() + 1; ++ i)
-            cost_func->AddParameterBlock(6);  // Add Pose (RefPose + Convisible Pose)
+            cost_func->AddParameterBlock(6);  // Add Pose (RefPose + Covisible Pose)
         return cost_func;
      }
 
