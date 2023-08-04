@@ -5,8 +5,8 @@ import os
 
 def options():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--gt",type=str,default="../KITTI-07/calib_res/gt_calib_07.txt")
-    parser.add_argument("--pred",type=str,default="../KITTI-07/calib_res/iba_global_pt3_07.txt")
+    parser.add_argument("--gt",type=str,default="../KITTI-04/calib_res/gt_calib_04.txt")
+    parser.add_argument("--pred",type=str,default="../KITTI-04/calib_res/iba_global_baonly_04.txt")
     return parser.parse_args()
 
 def inv_pose(pose:np.ndarray):

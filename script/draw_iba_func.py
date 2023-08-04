@@ -1,6 +1,5 @@
 import argparse
 import numpy as np
-from scipy.spatial.transform import Rotation
 import os
 os.chdir(os.path.abspath(os.path.dirname(__file__)))
 import matplotlib.pyplot as plt

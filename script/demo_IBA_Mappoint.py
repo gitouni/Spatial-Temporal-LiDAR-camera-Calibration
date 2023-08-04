@@ -37,13 +37,13 @@ def options():
     parser = argparse.ArgumentParser()
     kitti_parser = parser.add_argument_group()
     kitti_parser.add_argument("--base_dir",type=str,default="/data/DATA/data_odometry/dataset/")
-    kitti_parser.add_argument("--seq",type=int,default=8,choices=[i for i in range(11)])
+    kitti_parser.add_argument("--seq",type=int,default=4,choices=[i for i in range(11)])
     
     io_parser = parser.add_argument_group()
-    io_parser.add_argument("--KeyFrameDir",type=str,default="../KITTI-07/KeyFrames")
-    io_parser.add_argument("--FrameIdFile",type=str,default="../KITTI-07/FrameId.yml")
-    io_parser.add_argument("--MapFile",type=str,default="../KITTI-07/Map.yml")
-    io_parser.add_argument("--sim3_file",type=str,default="../KITTI-07/calib_res/gt_calib_07.txt")
+    io_parser.add_argument("--KeyFrameDir",type=str,default="../KITTI-04/KeyFrames")
+    io_parser.add_argument("--FrameIdFile",type=str,default="../KITTI-04/FrameId.yml")
+    io_parser.add_argument("--MapFile",type=str,default="../KITTI-04/Map.yml")
+    io_parser.add_argument("--sim3_file",type=str,default="../KITTI-04/calib_res/iba_global_pl_04.txt")
     io_parser.add_argument("--KeyFrameIdKey",type=str,default="mnId")
     io_parser.add_argument("--FrameIdKey",type=str,default="mnFrameId")
     io_parser.add_argument("--KeyPointsKey",type=str,default="mvKeysUn")
@@ -59,14 +59,15 @@ def options():
     arg_parser.add_argument("--fps_sample",type=int,default=-1)
     arg_parser.add_argument("--pixel_corr_dist",type=float,default=1.5)
     arg_parser.add_argument("--max_2d_nn",type=int, default=30)
-    arg_parser.add_argument("--max_2d_std",type=float,default=0.07)
+    arg_parser.add_argument("--max_2d_std",type=float,default=0.00)
     arg_parser.add_argument("--max_depth_diff",type=float,default=0.1)
     arg_parser.add_argument("--gpr_radius",type=float,default=0.6)
     arg_parser.add_argument("--gpr_max_pts",type=int,default=30)
     arg_parser.add_argument("--gpr_max_cov",type=float,default=0.1)
-    arg_parser.add_argument("--gpr",type=str2bool,default=True)
+    arg_parser.add_argument("--gpr",type=str2bool,default=False)
     arg_parser.add_argument("--gpr_opt",type=str2bool, default=False)
     arg_parser.add_argument("--mp",type=str2bool,default=True)
+    arg_parser.add_argument("--threshold",type=float,default=10.0)
     arg_parser.add_argument("--depth_conflict",type=str2bool,default=False)
     args = parser.parse_args()
     args.seq_id = "%02d"%args.seq
@@ -178,6 +179,15 @@ def superpixel_approx(pcd:np.ndarray, query:np.ndarray, pixels:np.ndarray, intra
         sp_pts = np.array(parallel_res)
     return sp_pts
 
+def change_background_to_black(vis):
+    opt = vis.get_render_option()
+    opt.background_color = np.asarray([0, 0, 0])
+    return False
+
+def change_background_to_white(vis):
+    opt = vis.get_render_option()
+    opt.background_color = np.asarray([1, 1, 1])
+    return False
 
 if __name__ == "__main__":
     np.random.seed(10)  # color consistency
@@ -233,22 +243,29 @@ if __name__ == "__main__":
     src_matched_pts = src_matched_pts[src_dist_rev]
     tgt_matched_pts = tgt_matched_pts[src_dist_rev]
     mappoints = mappoints[src_dist_rev]
-    print("Left Keypoints:{}".format(len(src_matched_pts)))
     src_3d_kdtree = cKDTree(src_pcd_camcoord, leafsize=30)
     dist, src_pcd_3d_query = src_3d_kdtree.query(mappoints,k=1,p=2,workers=-1)
     dist = np.sqrt(dist)
+    dist_rev = dist < args.threshold
+    dist = dist[dist_rev]
+    src_pcd_3d_query = src_pcd_3d_query[dist_rev]
+    mappoints = mappoints[dist_rev]
     print("Mean 3d-3d Dist:{}".format(dist.mean()))
+    print("Matched mappoints:{}".format(len(mappoints)))
     sp_pts3d = src_pcd_camcoord[src_pcd_3d_query]
     src_pcd_o3d = o3d.geometry.PointCloud()
     src_pcd_o3d.points = o3d.utility.Vector3dVector(src_pcd_camcoord)
-    src_pcd_o3d.paint_uniform_color([0,0,0])
+    src_pcd_o3d.paint_uniform_color([0.8,0.7,0.2])
     mappoints_o3d = o3d.geometry.PointCloud()
     mappoints_o3d.points = o3d.utility.Vector3dVector(mappoints)
-    mappoints_o3d.paint_uniform_color([1.0,0,0])
+    mappoints_o3d.paint_uniform_color([1,0,0])
     sp_pts3d_o3d = o3d.geometry.PointCloud()
     sp_pts3d_o3d.points = o3d.utility.Vector3dVector(sp_pts3d)
     sp_pts3d_o3d.paint_uniform_color([0,1,1])
-    o3d.visualization.draw_geometries([src_pcd_o3d, mappoints_o3d, sp_pts3d_o3d])
+    key_to_callback = {}
+    key_to_callback[ord("K")] = change_background_to_black
+    key_to_callback[ord("B")] = change_background_to_white
+    o3d.visualization.draw_geometries_with_key_callbacks([src_pcd_o3d,mappoints_o3d, sp_pts3d_o3d], key_to_callback)
     # src_proj_pcd, _ = npproj(sp_pts3d, np.eye(4), intran, src_img.shape)
     # tgt_pcd_arr = nptran(sp_pts3d, camera_motion)
     # tgt_proj_pcd, tgt_proj_rev = npproj(tgt_pcd_arr, np.eye(4), intran, tgt_img.shape)
