@@ -119,7 +119,7 @@ runtime:
 * set `use_plane` to `false` and `err_weight` to `[1.0,1.0]` to apply `CBA+CA (PT)` method in Table 1 of our paper.
 * set `use_plane` to `false` and `err_weight` to `[1.0,0.0]` to apply `CBA` method in Table 1 of our paper.
 
-Remember to set 
+Remember to set different
 ```yaml
 io:
   ResFile: calib_res/iba_global_baonly_00.txt
