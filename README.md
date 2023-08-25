@@ -126,7 +126,7 @@ io:
 ```
 for different methods, or the prior files will be overwritten.
 
-## What arguments should change for other sequences</summary>
+## Parameters that need to be changed in other sequences
 * `../data/00/` -> `../data/xx/` for the `orb_store` program; 
 * `../config/orb_ori/KITTI00-02.yaml` -> `../config/orb_ori/KITTIxx-xx.yaml`; 
 * `KITTI-00` -> `KITTI-xx` for all aurgments; 
