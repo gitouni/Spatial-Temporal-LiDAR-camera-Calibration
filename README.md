@@ -12,7 +12,7 @@ Official Implementation of **Motion-based Lidar-camera Calibration via Cross-mod
 |---|---|---|
 |![](./doc/traj_04.jpeg)|![](./doc/traj_05.jpeg)|![](./doc/traj_07.jpeg)|
 
-These trajectories mainly contains translations and rotation around the Z-axis (Lidar), which are not suitable for hand-eye calibration. Other hybrid methods may also suffer from the bad initial extrinsic estimation from hand-eye calibration. We believe this proposed method offers a valuable tool to resolve this problem.
+These trajectories are not suitable for hand-eye calibration because of lack of adequent rotational motions in at least two directions. Other hybrid methods may also suffer from the bad initial extrinsic estimation from hand-eye calibration. We believe this proposed method offers a valuable tool to resolve this problem.
 # Performance on KITTI Odometry
 * `rotation units`: degree
 * `translation units`: cm
