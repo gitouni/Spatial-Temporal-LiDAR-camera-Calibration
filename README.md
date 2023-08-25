@@ -16,6 +16,7 @@ These trajectories mainly contains translations and rotation around the Z-axis (
 # Performance on KITTI Odometry
 * `rotation units`: degree
 * `translation units`: cm
+
 |Sequence| Roll | Pitch | Yaw| tX| tY| tZ|
 |---|---|---|---|---|---|---|
 |00|-0.12|-0.22|-0.07|2.93|1.59|0.18|
