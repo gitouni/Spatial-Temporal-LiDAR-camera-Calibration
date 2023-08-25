@@ -130,6 +130,6 @@ for different methods, or the prior files will be overwritten.
 * `../data/00/` -> `../data/xx/` for the `orb_store` program; 
 * `../config/orb_ori/KITTI00-02.yaml` -> `../config/orb_ori/KITTIxx-xx.yaml`; 
 * `KITTI-00` -> `KITTI-xx` for all aurgments; 
-* "../data/00/velodyne/" -> "../data/xx/velodyne/"; 
-* "floam_raw_00.txt" -> "floam_raw_xx.txt"; 
-* "floam_isam_00.txt" -> "floam_isam_xx.txt"; 
+* `../data/00/velodyne/` -> `../data/xx/velodyne/`; 
+* `floam_raw_00.txt` -> `floam_raw_xx.txt`; 
+* `floam_isam_00.txt` -> `floam_isam_xx.txt`; 
