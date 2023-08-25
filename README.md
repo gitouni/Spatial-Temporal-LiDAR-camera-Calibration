@@ -92,7 +92,7 @@ An example command for KITTI 00 Sequence:
 * `../KITTI-00/FrameId.yml`: Yaml file that contains Frame indicces of KeyFrames (will saved in the same directory of "Map.yml"
 * `../KITTI-00/slam_res/Twc.txt`: KeyFrame Poses estimated by ORB_SLAM
 * `../KITTI-00/slam_res/floam_raw_00.txt`: Lidar Poses estimated by F-LOAM (the number of itmes in this file is not equal to that in `Twc.txt`)
-* `../KITTI-00/slam_res/floam_isam_00.txt`: Lidar Poses Optimized by iSAM ((the number of itmes in this file is not equal to that in `Twc.txt` but equal to `floam_raw_00.txt`)
+* `../KITTI-00/slam_res/floam_isam_00.txt`: Lidar Poses Optimized by iSAM ((the number of itmes in this file is not equal to that in `Twc.txt` but equal to `floam_raw_00.txt`
 
 ## Hand-eye Calibration with Regularization
 An example command for KITTI 00 Sequence:
