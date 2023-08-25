@@ -1,5 +1,5 @@
 # Spatial-Temporal-LiDAR-camera-Calibration
-Official Implementation of**Motion-based Lidar-camera Calibration via Cross-modality Structure Consistency**. Hand-eye calibration requires complicated sensor motions to avoid degeneration. We are dedicated to addressing this problem and propose this work to calibrate Lidar and monocular camera in degenerate scenes (KITTI seqeunces).
+Official Implementation of**Motion-based Lidar-camera Calibration via Cross-modality Structure Consistency**.
 ![](./doc/framework.jpg)
 # Paper
 * [Techrxiv](https://www.techrxiv.org/articles/preprint/Motion-based_Lidar-camera_Calibration_via_Cross-Modality_Structure_Consistency/23995866)
@@ -24,6 +24,12 @@ These trajectories mainly contains translations and rotation around the Z-axis (
 |00|0.01|-0.09|0.05|1.03|-0.19|1.10|
 |05|0.01|-0.19|-0.15|1.95|1.56|-0.54|
 |07|-0.05|-0.00|-0.20|1.07|2.07|0.14|
+
+* An example calibration on Sequence 04
+
+| Ours| Ground-truth|
+|---|---|
+|![](./doc/proj_04_pred.png)|![](./doc/proj_04_gt.png)|
 
 # Tested Environment
 |C++|CMake|g++|python|System|
