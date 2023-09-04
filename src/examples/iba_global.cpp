@@ -406,9 +406,9 @@ private:
 
 int main(int argc, char** argv){
     argparse::ArgumentParser parser("global optimization");
-    parser.add_argument("--config").help("config_file").required();
+    parser.add_argument("config").help("config_file").required();
     parser.parse_args(argc, argv);
-    std::string config_file(parser.get<std::string>("--config"));
+    std::string config_file(parser.get<std::string>("config"));
     YAML::Node config = YAML::LoadFile(config_file);
     const YAML::Node &io_config = config["io"];
     const YAML::Node &orb_config = config["orb"];

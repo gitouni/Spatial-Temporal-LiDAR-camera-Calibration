@@ -80,23 +80,23 @@ void visual_odometry(ORB_SLAM2::System* SLAM, double slow_rate, std::vector<Eige
 
 int main(int argc, char** argv){
     argparse::ArgumentParser parser("ORB-SLAM with Keyframes storation process");
-    parser.add_argument("--seq_dir").help("parent directory of the directory of image files.").required();
-    parser.add_argument("--orb_yaml").help("directory of ORB yaml files").required();
-    parser.add_argument("--orb_voc").help("Vocabulary file of DBoW2/DBow3").required();
-    parser.add_argument("--output_pose").help("--directory to save poses of Keyframes.").required();
-    parser.add_argument("--keyframe_dir").help("--directory to save information of KeyFrames").required();
-    parser.add_argument("--map_file").help("--directory to save visual map").required();
+    parser.add_argument("seq_dir").help("parent directory of the directory of image files.").required();
+    parser.add_argument("orb_yaml").help("directory of ORB yaml files").required();
+    parser.add_argument("orb_voc").help("Vocabulary file of DBoW2/DBow3").required();
+    parser.add_argument("output_pose").help("--directory to save poses of Keyframes.").required();
+    parser.add_argument("keyframe_dir").help("--directory to save information of KeyFrames").required();
+    parser.add_argument("map_file").help("--directory to save visual map").required();
     parser.add_argument("--slow_rate").help("slow rate of runtime").scan<'g',double>().default_value(1.5);
     parser.add_argument("--img_dir").help("relative directory of images").default_value("image_0/");
     parser.add_argument("--timefile").help("timestamp file").default_value("times.txt");
     parser.parse_args(argc, argv);
     
-    std::string seq_dir(parser.get<std::string>("--seq_dir"));
-    std::string orb_yml(parser.get<std::string>("--orb_yaml"));
-    std::string orb_voc(parser.get<std::string>("--orb_voc"));
-    std::string TwcFile(parser.get<std::string>("--output_pose")); // output
-    std::string keyframe_dir(parser.get<std::string>("--keyframe_dir")); // output
-    std::string mapfile(parser.get<std::string>("--map_file"));
+    std::string seq_dir(parser.get<std::string>("seq_dir"));
+    std::string orb_yml(parser.get<std::string>("orb_yaml"));
+    std::string orb_voc(parser.get<std::string>("orb_voc"));
+    std::string TwcFile(parser.get<std::string>("output_pose")); // output
+    std::string keyframe_dir(parser.get<std::string>("keyframe_dir")); // output
+    std::string mapfile(parser.get<std::string>("map_file"));
     double slow_rate = parser.get<double>("--slow_rate");
     checkpath(seq_dir);
     checkpath(keyframe_dir);

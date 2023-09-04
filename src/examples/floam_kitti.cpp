@@ -14,10 +14,10 @@ void writeKittiData(std::ofstream &fs, Eigen::Isometry3d &mat, bool end=false);
 int main(int argc, char **argv)
 {
     argparse::ArgumentParser parser("floam_kitti");
-    parser.add_argument("--velo_dir").help("directory of velodyne pcd files").required();
-    parser.add_argument("--output").help("file to write output poses").required();
+    parser.add_argument("velo_dir").help("directory of velodyne pcd files").required();
+    parser.add_argument("output").help("file to write output poses").required();
     parser.parse_args(argc, argv);
-    std::string velo_dir(parser.get<std::string>("--velo_dir")), res_file(parser.get<std::string>("--output"));
+    std::string velo_dir(parser.get<std::string>("velo_dir")), res_file(parser.get<std::string>("output"));
     checkpath(velo_dir);
     if(!file_exist(velo_dir)){
         throw std::runtime_error("Velodyne Directory: "+velo_dir+" does not exsit.");

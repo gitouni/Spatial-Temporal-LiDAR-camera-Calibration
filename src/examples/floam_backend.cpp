@@ -7,14 +7,14 @@
 
 int main(int argc, char** argv){
     argparse::ArgumentParser parser("Back-end optimization of F-LOAM");
-    parser.add_argument("--config").help("config file").required();
-    parser.add_argument("--raw_pose").help("raw pose of the F-LOAM").required();
-    parser.add_argument("--velo_dir").help("directory of velodyne pcd files").required();
+    parser.add_argument("config").help("config file").required();
+    parser.add_argument("raw_pose").help("raw pose of the F-LOAM").required();
+    parser.add_argument("velo_dir").help("directory of velodyne pcd files").required();
     parser.parse_args(argc, argv);
-    std::string yaml_file(parser.get<std::string>("--config"));
+    std::string yaml_file(parser.get<std::string>("config"));
     assert(file_exist(yaml_file));
-    std::string input_pose_file(parser.get<std::string>("--raw_pose"));
-    std::string input_lidar_dir(parser.get<std::string>("--velo_dir"));
+    std::string input_pose_file(parser.get<std::string>("raw_pose"));
+    std::string input_lidar_dir(parser.get<std::string>("velo_dir"));
    
     auto option = BackEndOption();
     YAML::Node config = YAML::LoadFile(yaml_file);

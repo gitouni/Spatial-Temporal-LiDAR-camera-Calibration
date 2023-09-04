@@ -12,9 +12,9 @@
 int main(int argc, char** argv)
 {
     argparse::ArgumentParser parser("Hand-eye Calib");
-    parser.add_argument("--config").help("config file for hand-eye calibration.").required();
+    parser.add_argument("config").help("config file for hand-eye calibration.").required();
     parser.parse_args(argc, argv);
-    std::string config_file(parser.get<std::string>("--config"));
+    std::string config_file(parser.get<std::string>("config"));
     YAML::Node config = YAML::LoadFile(config_file);
     const YAML::Node &io_config = config["io"];
     const YAML::Node &runtime_config = config["runtime"];
