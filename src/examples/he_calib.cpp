@@ -7,13 +7,14 @@
 #include "HECalib.h"
 #include "NLHECalib.hpp"
 #include "kitti_tools.h"
+#include "argparse.hpp"
 
-int main(int argc, char** argv){
-    if(argc < 2){
-        std::cerr << "Got " << argc - 1 << " Parameters, but Expected parameters: yaml_file" << std::endl;
-        exit(0);
-    }
-    std::string config_file(argv[1]);
+int main(int argc, char** argv)
+{
+    argparse::ArgumentParser parser("Hand-eye Calib");
+    parser.add_argument("--config").help("config file for hand-eye calibration.").required();
+    parser.parse_args(argc, argv);
+    std::string config_file(parser.get<std::string>("--config"));
     YAML::Node config = YAML::LoadFile(config_file);
     const YAML::Node &io_config = config["io"];
     const YAML::Node &runtime_config = config["runtime"];

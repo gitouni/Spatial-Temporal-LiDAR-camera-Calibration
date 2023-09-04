@@ -7,6 +7,7 @@
 #include <chrono>
 #include <fstream>
 #include <limits>
+#include "argparse.hpp"
 
 void check_exist(std::string &file){
     if(!file_exist(file)){
@@ -30,7 +31,7 @@ void writeData(std::string &outfile, std::vector<Eigen::Isometry3d> Tlist){
     of.close();
 }
 
-void visual_odometry(ORB_SLAM2::System* SLAM, std::vector<Eigen::Isometry3d> &Twc_list,
+void visual_odometry(ORB_SLAM2::System* SLAM, double slow_rate, std::vector<Eigen::Isometry3d> &Twc_list,
     std::vector<std::size_t> &vKFFrameId, std::vector<std::string> &vstrImageFilename, std::vector<double> &vtimestamp,
      const std::string &KeyFrameDir, const std::string &MapFile)
     {
@@ -41,9 +42,7 @@ void visual_odometry(ORB_SLAM2::System* SLAM, std::vector<Eigen::Isometry3d> &Tw
             double tframe = vtimestamp[i];
             std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
             SLAM->TrackMonocular(img, vtimestamp[i]);
-            char msg[100];
-            sprintf(msg, "\033[033;1m[VO]\033[0m Frame %ld | %ld", i+1, vstrImageFilename.size());
-            std::cout << msg << std::endl;
+            std::printf("\033[033;1m[VO]\033[0m Frame %ld | %ld STATE: %d\n", i+1, vstrImageFilename.size(), SLAM->GetTrackingState());
             std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
             double ttrack= std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
             double T=0;
@@ -52,8 +51,8 @@ void visual_odometry(ORB_SLAM2::System* SLAM, std::vector<Eigen::Isometry3d> &Tw
             else if(i>0)
                 T = tframe-vtimestamp[i-1];
 
-            if(ttrack<T){
-                usleep(1e6*(T-ttrack));
+            if(ttrack<T*slow_rate){
+                usleep(1.0E6*(T*slow_rate-ttrack));
             }
         }catch(const std::exception &e){
             std::cout << "Visual Odometry Fatal Error: " << e.what() << std::endl;
@@ -80,24 +79,34 @@ void visual_odometry(ORB_SLAM2::System* SLAM, std::vector<Eigen::Isometry3d> &Tw
 }
 
 int main(int argc, char** argv){
-    if(argc < 7){
-        std::cout << "\033[31;1m Expected args: kitti_seq_dir orb_setting_file orb_vocabulary_file TwcFile KeyFrameDir MapFile.\033[0m" << std::endl;
-        return -1;
-    }
+    argparse::ArgumentParser parser("ORB-SLAM with Keyframes storation process");
+    parser.add_argument("--seq_dir").help("parent directory of the directory of image files.").required();
+    parser.add_argument("--orb_yaml").help("directory of ORB yaml files").required();
+    parser.add_argument("--orb_voc").help("Vocabulary file of DBoW2/DBow3").required();
+    parser.add_argument("--output_pose").help("--directory to save poses of Keyframes.").required();
+    parser.add_argument("--keyframe_dir").help("--directory to save information of KeyFrames").required();
+    parser.add_argument("--map_file").help("--directory to save visual map").required();
+    parser.add_argument("--slow_rate").help("slow rate of runtime").scan<'g',double>().default_value(1.5);
+    parser.add_argument("--img_dir").help("relative directory of images").default_value("image_0/");
+    parser.add_argument("--timefile").help("timestamp file").default_value("times.txt");
+    parser.parse_args(argc, argv);
     
-    std::string seq_dir = argv[1];
-    std::string orb_yml = argv[2];
-    std::string orb_voc = argv[3];
-    std::string TwcFile = argv[4]; // output
-    std::string keyframe_dir = argv[5]; // output
-    std::string mapfile = argv[6];
+    std::string seq_dir(parser.get<std::string>("--seq_dir"));
+    std::string orb_yml(parser.get<std::string>("--orb_yaml"));
+    std::string orb_voc(parser.get<std::string>("--orb_voc"));
+    std::string TwcFile(parser.get<std::string>("--output_pose")); // output
+    std::string keyframe_dir(parser.get<std::string>("--keyframe_dir")); // output
+    std::string mapfile(parser.get<std::string>("--map_file"));
+    double slow_rate = parser.get<double>("--slow_rate");
     checkpath(seq_dir);
     checkpath(keyframe_dir);
     check_exist(seq_dir);
     check_exist(orb_yml);
     check_exist(orb_voc);
-    std::string img_dir = seq_dir + "image_0/";
-    std::string timefile = seq_dir + "times.txt";
+    std::string img_dir = seq_dir + parser.get<std::string>("--img_dir");
+    checkpath(img_dir);
+    check_exist(img_dir);
+    std::string timefile = seq_dir + parser.get<std::string>("--timefile");
     std::vector<std::string> vImageFiles;
     std::vector<double> vTimeStamps;
     LoadTimestamp(timefile, vTimeStamps);
@@ -113,7 +122,7 @@ int main(int argc, char** argv){
     std::vector<Eigen::Isometry3d> vTwc;
     std::vector<std::size_t> vKFFrameId;
     vTwc.reserve(vImageFiles.size());
-    visual_odometry(orbSLAM, std::ref(vTwc), std::ref(vKFFrameId), std::ref(vImageFiles), std::ref(vTimeStamps), std::ref(keyframe_dir), mapfile);
+    visual_odometry(orbSLAM, slow_rate, std::ref(vTwc), std::ref(vKFFrameId), std::ref(vImageFiles), std::ref(vTimeStamps), std::ref(keyframe_dir), mapfile);
     std::cout << "Total visual Frames: " << vTwc.size() << ", Key Frames: " << vKFFrameId.size() << std::endl;
     writeData(TwcFile, vTwc);
 

@@ -4,30 +4,25 @@
 #include <vector>
 #include <string>
 #include <iostream>
-
+#include "argparse.hpp"
 
 template <typename PointType>
 bool readPointCloud(pcl::PointCloud<PointType> &point_cloud, const std::string filename);
 
 void writeKittiData(std::ofstream &fs, Eigen::Isometry3d &mat, bool end=false);
 
-int main(int argc, char **argv){
-    std::string velo_dir, res_file;
-    std::vector<std::string> velo_files;
-    if(argc < 3){
-        std::cout << "\033[31;1m Got " << argc-1 << " Parameters, expect 2.\033[0m" << std::endl;
-        throw std::invalid_argument("Expected args: kitti_velodyne_dir output_pose_file");
-        return -1;
-    }
-    else
-    {
-        velo_dir.assign(argv[1]);
-        res_file.assign(argv[2]);
-    }
-        checkpath(velo_dir);
+int main(int argc, char **argv)
+{
+    argparse::ArgumentParser parser("floam_kitti");
+    parser.add_argument("--velo_dir").help("directory of velodyne pcd files").required();
+    parser.add_argument("--output").help("file to write output poses").required();
+    parser.parse_args(argc, argv);
+    std::string velo_dir(parser.get<std::string>("--velo_dir")), res_file(parser.get<std::string>("--output"));
+    checkpath(velo_dir);
     if(!file_exist(velo_dir)){
         throw std::runtime_error("Velodyne Directory: "+velo_dir+" does not exsit.");
     };  // velodyne/ must exist
+    std::vector<std::string> velo_files;
     listdir(velo_files,velo_dir);
     std::cout << "Found " << velo_files.size() << " velodyne files." << std::endl;
     std::ofstream res_stream(res_file.c_str(), std::ios::ate);  // write mode | ASCII mode

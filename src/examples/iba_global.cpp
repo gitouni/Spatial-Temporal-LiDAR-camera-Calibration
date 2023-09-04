@@ -13,6 +13,7 @@
 #include "Nomad/nomad.hpp"
 #include "Cache/CacheBase.hpp"
 #include <unordered_map>
+#include "argparse.hpp"
 
 typedef std::uint32_t IndexType; // other types cause error, why?
 typedef std::vector<IndexType> VecIndex;
@@ -404,11 +405,10 @@ private:
 };
 
 int main(int argc, char** argv){
-    if(argc < 2){
-        std::cerr << "Require config_yaml arg" << std::endl;
-        exit(0);
-    }
-    std::string config_file(argv[1]);
+    argparse::ArgumentParser parser("global optimization");
+    parser.add_argument("--config").help("config_file").required();
+    parser.parse_args(argc, argv);
+    std::string config_file(parser.get<std::string>("--config"));
     YAML::Node config = YAML::LoadFile(config_file);
     const YAML::Node &io_config = config["io"];
     const YAML::Node &orb_config = config["orb"];

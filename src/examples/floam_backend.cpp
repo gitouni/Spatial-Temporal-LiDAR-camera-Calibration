@@ -2,15 +2,19 @@
 #include "io_tools.h"
 #include "kitti_tools.h"
 #include <yaml-cpp/yaml.h>
+#include "argparse.hpp"
+
 
 int main(int argc, char** argv){
-    if(argc < 4){
-        std::cerr << "Expected args: yaml pose_txt Lidar_dir" << std::endl;
-    }
-    std::string yaml_file(argv[1]);
+    argparse::ArgumentParser parser("Back-end optimization of F-LOAM");
+    parser.add_argument("--config").help("config file").required();
+    parser.add_argument("--raw_pose").help("raw pose of the F-LOAM").required();
+    parser.add_argument("--velo_dir").help("directory of velodyne pcd files").required();
+    parser.parse_args(argc, argv);
+    std::string yaml_file(parser.get<std::string>("--config"));
     assert(file_exist(yaml_file));
-    std::string input_pose_file(argv[2]);
-    std::string input_lidar_dir(argv[3]);
+    std::string input_pose_file(parser.get<std::string>("--raw_pose"));
+    std::string input_lidar_dir(parser.get<std::string>("--velo_dir"));
    
     auto option = BackEndOption();
     YAML::Node config = YAML::LoadFile(yaml_file);
@@ -58,12 +62,13 @@ int main(int argc, char** argv){
     optimizer.writePoses(output_isam_poses);
     std::cout << "isam optimized poses saved to " << output_isam_poses << std::endl;
     // *** Results of ISAM and Multway are too similar! ***
-    if(use_multiway){
+    if(use_multiway)
+    {
         optimizer.MultiRegistration(odom_refine);
         optimizer.writePoseGraph(output_pose_graph);
         optimizer.UpdatePosesFromPG();
         optimizer.writePoses(output_mr_poses);        
     }
-    if(save_map){}
+    if(save_map)
         optimizer.SaveMap(map_path);
 }
