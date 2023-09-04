@@ -53,12 +53,12 @@ More recent version would be OK.
 * Build and Compile: `cd build && cmake .. -Wno-dev && make -j` <details>
   <summary>TroubleShooting</summary>
   If you have installed g2o through ROS (if you have ROS packages like `base_local_planner`/`teb_local_planner`/`mpc_local_planner`), please exclude it from    LD_LIBRARY_PATH environment variable, or `source config/settings.sh`.   </details>
-
+* Argparse Support (Acknowledge [argparse](https://github.com/p-ranav/argparse/tree/master) ) : use `-h` or `--help` for each executable cpp file to view help.
 ## Step 1: Estimate Camera and Lidar Poses
 ### orb_slam
 An example command for KITTI 00 Sequence:
 ```
-./orb_store ../data/00/ ../config/orb_ori/KITTI00-02.yaml ../data/Vocabulary/ORBvoc.txt ../KITTI-00/slam_res/Twc.txt ../KITTI-00/KeyFrames/ ../KITTI-00/Map.yml 1.5
+./orb_store ../data/00/ ../config/orb_ori/KITTI00-02.yaml ../data/Vocabulary/ORBvoc.txt ../KITTI-00/slam_res/Twc.txt ../KITTI-00/KeyFrames/ ../KITTI-00/Map.yml --slow_rate 1.5
 ```
 * `../data/00/`: sequence directory of KITTI Sequence 00
 * `../config/orb_ori/KITTI00-02.yaml`: yaml file for ORB_SLAM
@@ -66,7 +66,7 @@ An example command for KITTI 00 Sequence:
 * `../KITTI-00/slam_res/Twc.txt`: KeyFrame poses saved by ORB_SLAM, in KITTI format
 * `../KITTI-00/KeyFrames/`: KeyFrame information saved by ORB_SLAM, can be restored during runtime
 * `../KITTI-00/Map.yml`: Map saved by ORB_SLAM, can be restored during runtime
-* `1.5`: Slow Rate of ORB_SLAM2. Duration between Frames: computation + wait_time >= 1.5 * real timestamp
+* `--slow_rate 1.5 [Optional]`: Slow Rate of ORB_SLAM2. Duration between Frames: computation + wait_time >= 1.5 * real timestamp. Smaller `slow_rate` is needed for more powerful CPU.
 
 ### F-LOAM
 an example command for KITTI 00 Sequence:
