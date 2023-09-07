@@ -16,6 +16,7 @@ These trajectories are not suitable for hand-eye calibration because of lack of 
 # Performance on KITTI Odometry
 * `rotation units`: degree
 * `translation units`: cm
+* Accuracy reserved to `0.01`
 
 |Sequence| Roll | Pitch | Yaw| tX| tY| tZ|
 |---|---|---|---|---|---|---|
