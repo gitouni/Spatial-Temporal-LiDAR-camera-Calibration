@@ -95,14 +95,14 @@ An example command for KITTI 00 Sequence:
 * `../KITTI-00/slam_res/floam_raw_00.txt`: Lidar Poses estimated by F-LOAM (the number of itmes in this file is not equal to that in `Twc.txt`)
 * `../KITTI-00/slam_res/floam_isam_00.txt`: Lidar Poses Optimized by iSAM ((the number of itmes in this file is not equal to that in `Twc.txt` but equal to `floam_raw_00.txt`
 
-## Hand-eye Calibration with Regularization
+## Step 2: Hand-eye Calibration with Regularization
 An example command for KITTI 00 Sequence:
 ```
  ./he_calib ../config/calib/00/he_calib.yml
 ```
 * A file with 13 entries will be saved to `../KITTI/calib_res/he_rb_calib_00.txt`.
 * The calibration result of the orindary hand-eye calibration is also saved for checking: `../KITTI/calib_res/he_calib_00.txt`.
-## Global optimization
+## Step 3: Global optimization
 `Nomad` library must be correctly **installed** before this step.
 
 An example command for KITTI 00 Sequence:
