@@ -75,7 +75,7 @@ an example command for KITTI 00 Sequence:
 ```
 * `../data/00/velodyne/`: directory containing the Lidar PointClouds, whose filenames must be sorted by timestamp.
 * `../KITTI-00/slam_res/floam_raw_00.txt`: Lidar Poses Estimated by F-LOAM. 
-<details><summary>Note</summary>Note that the number of Lidar Poses is not equal to Camera poses because ORB_SLAM only saved KeyFrame Poses. However, the File Id (FrameId) of these KeyFrames are saved to 'FrameId.yml' in the same directory of 'Map.yml'</details>
+<details><summary>Note</summary>Note that the number of Lidar Poses and Camera poses are different because ORB_SLAM only saved KeyFrame Poses. However, the File Id (FrameId) of these KeyFrames are saved to 'FrameId.yml' in the same directory of 'Map.yml'</details>
 
 ### F-LOAM Backend Optimization
 An example command for KITTI 00 Sequence:
