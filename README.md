@@ -26,12 +26,16 @@ These trajectories are not suitable for hand-eye calibration because of lack of 
 |05|0.01|-0.19|-0.15|1.95|1.56|-0.54|0.24|2.56|
 |07|-0.05|-0.00|-0.20|1.07|2.07|0.14|0.21|2.34|
 
-* An example calibration on Sequence 04
+* Examples of Quanlitative Results
 
-| Ours| Ground-truth|
-|---|---|
-|![](./doc/proj_04_pred.png)|![](./doc/proj_04_gt.png)|
-
+|Seq| Predicted | Ground-truth|
+|---|---|---|
+|00|![](./doc/proj_00_pred.png)|![](./doc/proj_00_gt.png)|
+|02|![](./doc/proj_02_pred.png)|![](./doc/proj_02_gt.png)|
+|03|![](./doc/proj_03_pred.png)|![](./doc/proj_03_gt.png)|
+|04|![](./doc/proj_04_pred.png)|![](./doc/proj_04_gt.png)|
+|05|![](./doc/proj_05_pred.png)|![](./doc/proj_05_gt.png)|
+|07|![](./doc/proj_07_pred.png)|![](./doc/proj_07_gt.png)|
 # Tested Environment
 |C++|CMake|g++|python|System|
 |---|---|---|---|---|
