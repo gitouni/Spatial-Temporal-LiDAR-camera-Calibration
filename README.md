@@ -1,5 +1,5 @@
 # Official Implementation of the paper **Targetless Lidar-camera Calibration via Cross-modality Structure Consistency**
-![](./doc/framework.jpg)
+![](./doc/abstract.jpg)
 # Paper
 * [Techrxiv](https://www.techrxiv.org/articles/preprint/Motion-based_Lidar-camera_Calibration_via_Cross-Modality_Structure_Consistency/23995866)
 * [IEEE](https://ieeexplore.ieee.org/document/10334050)
