@@ -60,6 +60,8 @@ More recent version would be OK.
   If you have installed g2o through ROS (if you have ROS packages like `base_local_planner`/`teb_local_planner`/`mpc_local_planner`), please exclude it from    LD_LIBRARY_PATH environment variable, or `source config/settings.sh`.   </details>
 * Argparse Support (Acknowledge [argparse](https://github.com/p-ranav/argparse/tree/master) ) : use `-h` or `--help` for each executable cpp file to view help.
 ## Step 1: Estimate Camera and Lidar Poses
+### Why SLAM?
+Our algorithm requires 3D visual map (scaleless), 3D pointcloud map, 2D feature points for each frame, relative poses of cameras and LiDAR.
 ### orb_slam
 An example command for KITTI 00 Sequence:
 ```
