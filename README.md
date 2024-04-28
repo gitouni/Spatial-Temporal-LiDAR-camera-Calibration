@@ -12,7 +12,7 @@
 |---|---|---|
 |![](./doc/traj_04.jpeg)|![](./doc/traj_05.jpeg)|![](./doc/traj_07.jpeg)|
 
-These trajectories are not suitable for hand-eye calibration because of lack of adequent rotations around at least two directions. Other hybrid methods may also suffer from the bad initial extrinsic estimation from hand-eye calibration. We believe this proposed method offers a valuable tool to resolve this problem.
+These trajectories are not suitable for hand-eye calibration because of lack of adequent rotations around at least two directions (only in yaw). Other hybrid methods may also suffer from the bad initial extrinsic estimation from hand-eye calibration. We believe this proposed method offers a valuable tool to resolve this problem.
 # Performance on KITTI Odometry
 * `rotation units`: degree
 * `translation units`: cm
