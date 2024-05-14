@@ -73,7 +73,7 @@ An example command for KITTI 00 Sequence:
 * `../KITTI-00/slam_res/Twc.txt`: KeyFrame poses saved by ORB_SLAM, in KITTI format
 * `../KITTI-00/KeyFrames/`: KeyFrame information saved by ORB_SLAM, can be restored during runtime
 * `../KITTI-00/Map.yml`: Map saved by ORB_SLAM, can be restored during runtime
-* `--slow_rate 1.5 [Optional]`: Slow Rate of ORB_SLAM2. Duration between Frames: computation + wait_time >= 1.5 * real timestamp. Smaller `slow_rate` is needed for more powerful CPU.
+* `--slow_rate 1.5 [Optional]`: Slow Rate of ORB_SLAM2. Duration between Frames: computation + wait_time >= 1.5 * real timestamp. Larger `slow_rate` is needed for a less powerful CPU. `1.5` is recommended for a I9-12900KF CPU.
 
 ### F-LOAM
 an example command for KITTI 00 Sequence:
