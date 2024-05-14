@@ -1,7 +1,7 @@
 # Official Implementation of the paper **Targetless Lidar-camera Calibration via Cross-modality Structure Consistency**
 ![](./doc/abstract.jpg)
 # Paper
-* [Techrxiv](https://www.techrxiv.org/articles/preprint/Motion-based_Lidar-camera_Calibration_via_Cross-Modality_Structure_Consistency/23995866)
+* [Techrxiv](https://www.techrxiv.org/users/689736/articles/682874-targetless-lidar-camera-calibration-via-cross-modality-structure-consistency)
 * [IEEE](https://ieeexplore.ieee.org/document/10334050)
 # KITTI Trajectory
 |00|02|03|
