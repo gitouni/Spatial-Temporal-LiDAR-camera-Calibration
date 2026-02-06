@@ -89,7 +89,7 @@ An example command for KITTI 00 Sequence:
 ```
  ./floam_backend ../config/loam/backend.yml ../KITTI-00/slam_res/floam_raw_00.txt ../data/00/velodyne/
  ```
- * `../config/loam/backend.yml`: config file of backend optimzation
+ * `../config/loam/backend.yml`: config file of backend optimzation (Modify names of saved files)
  * `../KITTI-00/slam_res/floam_raw_00.txt`: Lidar poses estimated by F-LOAM
  * `../data/00/velodyne/`: directory containing the Lidar PointClouds, whose filenames must be sorted by timestamp.
 
